@@ -1,0 +1,5 @@
+# docker compose -f compose.yaml -f docker/compose.vaapi.yaml up -d
+services:
+  rencoderr:
+    devices:
+      - /dev/dri:/dev/dri

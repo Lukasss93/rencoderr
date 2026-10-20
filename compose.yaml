@@ -1,0 +1,24 @@
+services:
+  rencoderr:
+    build:
+      context: .
+    image: rencoderr:local
+    platform: linux/amd64
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${HTTP_PORT:-8000}:8000"
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      APP_URL: ${APP_URL:-http://localhost:8000}
+      APP_KEY: ${APP_KEY:-}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      OCTANE_WORKERS: ${OCTANE_WORKERS:-2}
+      HORIZON_WORKERS: ${HORIZON_WORKERS:-1}
+    volumes:
+      # SQLite requires local storage with reliable filesystem locking.
+      - ${CONFIG_PATH:-./config-data}:/config
+      - ${MEDIA_PATH:-./media}:/media
