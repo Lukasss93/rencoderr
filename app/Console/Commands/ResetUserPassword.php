@@ -26,7 +26,15 @@ class ResetUserPassword extends Command
             return self::FAILURE;
         }
 
-        $email = Str::lower(trim((string) $this->argument('email')));
+        $email = $this->argument('email');
+
+        if (! is_string($email)) {
+            $this->error('An email address is required.');
+
+            return self::FAILURE;
+        }
+
+        $email = Str::lower(trim($email));
         $user = User::query()->where('email', $email)->first();
 
         if ($user === null) {

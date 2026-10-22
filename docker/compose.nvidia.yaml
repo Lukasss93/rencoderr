@@ -1,0 +1,13 @@
+# Requires the NVIDIA Container Toolkit on the host.
+# docker compose -f compose.yaml -f docker/compose.nvidia.yaml up -d
+services:
+  rencoderr:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,video,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

@@ -107,7 +107,7 @@ return [
             'level' => env('LOG_LEVEL', 'debug'),
             'handler' => StreamHandler::class,
             'handler_with' => [
-                'stream' => 'php://stderr',
+                'stream' => env('LOG_STDERR_STREAM', 'php://stderr'),
             ],
             'formatter' => env('LOG_STDERR_FORMATTER'),
             'processors' => [PsrLogMessageProcessor::class],
