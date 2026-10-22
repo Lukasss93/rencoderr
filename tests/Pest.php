@@ -1,19 +1,78 @@
 <?php
 
+use Alchemy\BinaryDriver\Configuration;
+use Alchemy\BinaryDriver\Exception\ExecutionFailureException;
+use Alchemy\BinaryDriver\Listeners\ListenerInterface;
+use Alchemy\BinaryDriver\ProcessBuilderFactoryInterface;
+use Alchemy\BinaryDriver\ProcessRunnerInterface;
 use App\Jobs\ScanLibraryPath;
 use App\Models\LibraryPath;
 use App\Scan\Enums\ScanStatus;
+use FFMpeg\Driver\FFMpegDriver;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Process\Exceptions\ProcessTimedOutException;
 use Illuminate\Support\Str;
 use Illuminate\Testing\PendingCommand;
 use Illuminate\Testing\TestResponse;
 use Pest\TestSuite;
+use Psr\Log\NullLogger;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 use function Pest\Laravel\artisan;
 
 pest()->extend(TestCase::class)->use(LazilyRefreshDatabase::class)->in('Feature');
+
+/**
+ * Exercise PHP-FFMpeg's command pipeline using Laravel's process fake without launching a binary.
+ */
+function fakeFfmpegDriver(): void
+{
+    $commands = new WeakMap;
+    $timeout = 5;
+    $factory = Mockery::mock(ProcessBuilderFactoryInterface::class);
+    $factory->shouldReceive('setTimeout')->andReturnUsing(function (int $seconds) use (&$timeout, $factory) {
+        $timeout = $seconds;
+
+        return $factory;
+    });
+    $factory->shouldReceive('create')->andReturnUsing(function (array $arguments) use ($commands, &$timeout): Process {
+        $process = new Process(['ffmpeg', ...$arguments], timeout: $timeout);
+        $commands[$process] = ['ffmpeg', ...$arguments];
+
+        return $process;
+    });
+    $runner = Mockery::mock(ProcessRunnerInterface::class);
+    $runner->shouldReceive('run')->andReturnUsing(function (Process $process, SplObjectStorage $listeners) use ($commands, &$timeout): string {
+        try {
+            $result = Illuminate\Support\Facades\Process::timeout($timeout)->run($commands[$process]);
+        } catch (ProcessTimedOutException $exception) {
+            throw new ExecutionFailureException('ffmpeg', $process->getCommandLine(), previous: $exception->getPrevious());
+        }
+
+        foreach ($listeners as $listener) {
+            if (! $listener instanceof ListenerInterface) {
+                throw new LogicException('FFmpeg output listeners must implement ListenerInterface.');
+            }
+
+            $listener->handle(Process::ERR, $result->errorOutput());
+        }
+
+        if (! $result->successful()) {
+            throw new ExecutionFailureException('ffmpeg', $process->getCommandLine(), $result->errorOutput());
+        }
+
+        return $result->output();
+    });
+    if (! $factory instanceof ProcessBuilderFactoryInterface || ! $runner instanceof ProcessRunnerInterface) {
+        throw new LogicException('FFmpeg test doubles must implement the driver interfaces.');
+    }
+
+    $driver = new FFMpegDriver($factory, new NullLogger, new Configuration(['timeout' => 5]));
+    $driver->setProcessRunner($runner);
+    app()->instance(FFMpegDriver::class, $driver);
+}
 
 /**
  * @param  array<string, mixed>  $parameters

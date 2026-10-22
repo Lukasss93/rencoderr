@@ -44,10 +44,10 @@ it('places library settings inside the settings sidebar', function (): void {
     $response = actingAs(User::factory()->create())->get(route('settings.libraries'))->assertOk()->assertSee('Add your first library');
     $navigation = navigationDocument((string) $response->getContent());
 
-    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(1.0)
-        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a)'))->toBe('Libraries')
-        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a/@href)'))->toBe(route('settings.libraries'))
-        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a/@aria-current)'))->toBe('page');
+    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(2.0)
+        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[2])'))->toBe('Libraries')
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@href)'))->toBe(route('settings.libraries'))
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@aria-current)'))->toBe('page');
 });
 
 it('keeps the settings sidebar within the settings section', function (string $page): void {
@@ -99,10 +99,14 @@ it('keeps application navigation and account menus off the login page', function
         ->and($navigation->evaluate('count(//button[@aria-label="User menu"])'))->toBe(0.0);
 });
 
-it('opens settings on libraries and redirects the former library URL', function (string $page): void {
-    actingAs(User::factory()->create())->get(route($page))->assertRedirectToRoute('settings.libraries');
-})->with(['settings.index', 'libraries.index']);
+it('opens settings on status and redirects former URLs', function (string $page, string $destination): void {
+    actingAs(User::factory()->create())->get(route($page))->assertRedirectToRoute($destination);
+})->with([
+    ['settings.index', 'settings.status'],
+    ['settings.system-health', 'settings.status'],
+    ['libraries.index', 'settings.libraries'],
+]);
 
 it('protects queue and settings pages behind the existing authentication', function (string $page): void {
     get(route($page))->assertRedirectToRoute('login');
-})->with(['queue.index', 'settings.index', 'settings.libraries']);
+})->with(['queue.index', 'settings.index', 'settings.libraries', 'settings.status']);

@@ -5,6 +5,7 @@ use App\Livewire\Auth\Login;
 use App\Livewire\Dashboard;
 use App\Livewire\Queue;
 use App\Livewire\Settings\Libraries;
+use App\Livewire\Settings\Status;
 use Illuminate\Support\Facades\Route;
 
 Route::livewire('/login', Login::class)
@@ -18,7 +19,9 @@ Route::post('/logout', LogoutController::class)
 Route::middleware('auth')->group(function (): void {
     Route::livewire('/', Dashboard::class)->name('home');
     Route::livewire('/queue', Queue::class)->name('queue.index');
-    Route::redirect('/settings', '/settings/libraries')->name('settings.index');
+    Route::redirect('/settings', '/settings/status')->name('settings.index');
+    Route::livewire('/settings/status', Status::class)->name('settings.status');
     Route::livewire('/settings/libraries', Libraries::class)->name('settings.libraries');
+    Route::redirect('/settings/system-health', '/settings/status')->name('settings.system-health');
     Route::redirect('/libraries', '/settings/libraries')->name('libraries.index');
 });

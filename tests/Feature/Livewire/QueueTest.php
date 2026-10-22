@@ -6,7 +6,6 @@ use App\Models\Library;
 use App\Models\LibraryPath;
 use App\Models\User;
 use App\Scan\Enums\ScanStatus;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Queue as JobQueue;
@@ -18,7 +17,7 @@ use function Pest\Laravel\freezeTime;
 use function Pest\Laravel\get;
 use function Pest\Laravel\postJson;
 
-it('shows real waiting processing and scheduled job counts with the latest scan results', function (): void {
+it('keeps background scan jobs out of the transcoding queue', function (): void {
     Config::set('queue.default', 'database');
     freezeTime();
     $library = Library::factory()->create(['name' => 'Movies']);
@@ -38,14 +37,14 @@ it('shows real waiting processing and scheduled job counts with the latest scan 
     JobQueue::later(now()->addMinutes(10), new ScanLibraryPath($waiting->id, (string) Str::uuid()));
     JobQueue::pushOn('other-queue', new ScanLibraryPath($waiting->id, (string) Str::uuid()));
 
-    Livewire::test(Queue::class)->assertViewHas('statistics', [
-        'waiting' => 1, 'processing' => 1, 'delayed' => 1, 'failed' => 1,
-    ])->assertSee('Movies')->assertSee('/media/running')->assertSee('/media/waiting')
-        ->assertSee('Storage unavailable.')->assertDontSee('/media/not-scanned');
+    Livewire::test(Queue::class)->assertSee('Queue empty')->assertSee('No transcoding jobs yet')
+        ->assertDontSee('Processing jobs')->assertDontSee('Waiting jobs')->assertDontSee('Scheduled jobs')
+        ->assertDontSee('Failed scans')->assertDontSee('Movies')->assertDontSee('/media/running')
+        ->assertDontSee('/media/waiting')->assertDontSee('Storage unavailable.')->assertDontSee('/media/not-scanned');
     actingAs(User::factory()->create())->get(route('queue.index'))->assertOk()->assertSeeLivewire(Queue::class);
 });
 
-it('refreshes queue counts and scan results after work finishes', function (): void {
+it('keeps the transcoding queue empty when a library scan finishes', function (): void {
     Config::set('queue.default', 'database');
     $root = LibraryPath::factory()->create(['scan_status' => ScanStatus::Scanning, 'scan_requested_at' => now()]);
     JobQueue::push(new ScanLibraryPath($root->id, (string) Str::uuid()));
@@ -56,24 +55,25 @@ it('refreshes queue counts and scan results after work finishes', function (): v
     }
 
     $component = Livewire::test(Queue::class);
-    $component->assertViewHas('statistics', ['waiting' => 0, 'processing' => 1, 'delayed' => 0, 'failed' => 0]);
+    $component->assertSee('Queue empty')->assertSee('No transcoding jobs yet');
 
     $job->delete();
     $root->update(['scan_status' => ScanStatus::Completed, 'scan_finished_at' => now()]);
-    $component->call('$refresh')->assertSee('Queue empty')->assertSee('Scan completed')
-        ->assertViewHas('statistics', ['waiting' => 0, 'processing' => 0, 'delayed' => 0, 'failed' => 0]);
+    $component->call('$refresh')->assertSee('Queue empty')->assertSee('No transcoding jobs yet')
+        ->assertDontSee('Scan completed');
 });
 
-it('filters scan activity by its latest status', function (): void {
+it('ignores old scan status links on the transcoding queue', function (): void {
     LibraryPath::factory()->atPath('/media/pending')->create(['scan_status' => ScanStatus::Queued]);
     LibraryPath::factory()->atPath('/media/completed')->create(['scan_status' => ScanStatus::Completed]);
     LibraryPath::factory()->atPath('/media/failed')->create(['scan_status' => ScanStatus::Failed]);
 
-    Livewire::test(Queue::class)->set('status', 'failed')->assertSee('/media/failed')->assertDontSee('/media/pending')
-        ->assertDontSee('/media/completed')->set('status', 'completed')->assertSee('/media/completed')->assertDontSee('/media/failed');
+    Livewire::withQueryParams(['status' => 'failed'])->test(Queue::class)
+        ->assertSee('No transcoding jobs yet')->assertDontSee('Scan status')
+        ->assertDontSee('/media/failed')->assertDontSee('/media/pending')->assertDontSee('/media/completed');
 });
 
-it('paginates scan activity and resets the page when its filter changes', function (): void {
+it('does not paginate library scans on the transcoding queue', function (): void {
     $library = Library::factory()->create();
 
     for ($index = 0; $index < 26; $index++) {
@@ -83,13 +83,12 @@ it('paginates scan activity and resets the page when its filter changes', functi
         ]);
     }
 
-    $component = Livewire::test(Queue::class);
-    $component->assertViewHas('activity', fn (LengthAwarePaginator $activity): bool => count($activity->items()) === 25 && $activity->total() === 26);
-    $component->call('setPage', 2)->assertSee('/media/folder-0')->set('status', 'failed')
-        ->assertSet('paginators.page', 1)->assertSee('/media/folder-0')->assertDontSee('/media/folder-25');
+    Livewire::withQueryParams(['page' => 2])->test(Queue::class)
+        ->assertSee('No transcoding jobs yet')->assertDontSee('/media/folder-0')
+        ->assertDontSee('/media/folder-25')->assertDontSee('Pagination Navigation');
 });
 
-it('escapes library names folder paths and scan errors in the queue page', function (): void {
+it('does not expose library names folder paths or scan errors in the queue page', function (): void {
     $name = '<script>library()</script>';
     $path = '/media/<img src=x onerror=alert(1)>';
     $error = '<script>error()</script>';
@@ -98,14 +97,14 @@ it('escapes library names folder paths and scan errors in the queue page', funct
     ]);
 
     actingAs(User::factory()->create())->get(route('queue.index'))->assertOk()
-        ->assertSee($name)->assertDontSee($name, false)->assertSee($path)->assertDontSee($path, false)
-        ->assertSee($error)->assertDontSee($error, false);
+        ->assertDontSee($name)->assertDontSee($name, false)->assertDontSee($path)->assertDontSee($path, false)
+        ->assertDontSee($error)->assertDontSee($error, false);
 });
 
 it('shows an empty queue when no work has been requested', function (): void {
     Config::set('auth.enabled', false);
 
-    get(route('queue.index'))->assertOk()->assertSee('Queue empty')->assertSee('No scans match this status.');
+    get(route('queue.index'))->assertOk()->assertSee('Queue empty')->assertSee('No transcoding jobs yet')->assertDontSee('Latest library scans');
 });
 
 it('requires authentication for live queue updates after the session expires', function (): void {
