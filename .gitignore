@@ -30,3 +30,11 @@ Thumbs.db
 
 /config-data
 /media
+
+# Laravel Boost generated agent files
+/.agents/skills/
+/.claude/skills/
+/AGENTS.md
+/CLAUDE.md
+/.mcp.json
+/opencode.json
