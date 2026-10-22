@@ -38,13 +38,14 @@ it('marks the current navigation section', function (string $page, string $link)
     'dashboard' => ['home', 'home'],
     'queue' => ['queue.index', 'queue.index'],
     'library settings' => ['settings.libraries', 'settings.index'],
+    'user settings' => ['settings.users', 'settings.index'],
 ]);
 
 it('places library settings inside the settings sidebar', function (): void {
     $response = actingAs(User::factory()->create())->get(route('settings.libraries'))->assertOk()->assertSee('Add your first library');
     $navigation = navigationDocument((string) $response->getContent());
 
-    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(2.0)
+    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(3.0)
         ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[2])'))->toBe('Libraries')
         ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@href)'))->toBe(route('settings.libraries'))
         ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@aria-current)'))->toBe('page');

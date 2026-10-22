@@ -1,6 +1,6 @@
 <?php
 
-namespace App;
+namespace App\Encoding;
 
 use Alchemy\BinaryDriver\Exception\ExecutionFailureException;
 use Alchemy\BinaryDriver\Listeners\DebugListener;

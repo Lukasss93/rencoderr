@@ -45,7 +45,7 @@ it('shows hardware and software encoders in separate categories for each media t
         ->assertSee('libx264')->assertSee('h264_nvenc')->assertSee('aac')->assertSee('libopus')
         ->assertSee('Hardware acceleration')->assertSee('Intel Quick Sync (QSV)')->assertSee('NVIDIA NVENC')
         ->assertSee('No hardware audio encoders detected.')
-        ->assertSee('FFmpeg supported only')->assertDontSee('Not tested')->assertDontSee('Verified')->assertDontSee('SubRip subtitle');
+        ->assertSee('Supported by FFmpeg, unavailable on this hardware')->assertDontSee('Not tested')->assertDontSee('Verified')->assertDontSee('SubRip subtitle');
 
     $document = new DOMDocument;
     $document->loadHTML((string) $response->getContent(), LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
@@ -54,6 +54,7 @@ it('shows hardware and software encoders in separate categories for each media t
         ->toBe(route('settings.status'));
     expect($navigation->evaluate('count(//section[@aria-label="Video hardware encoders"]//p[contains(@class,"font-mono")])'))->toBe(0.0)
         ->and($navigation->evaluate('count(//section[@aria-label="Video supported encoders"]//p[contains(@class,"font-mono")])'))->toBe(4.0)
+        ->and($navigation->evaluate('count(//section[@aria-label="Video supported encoders"]/details[not(@open)]/summary)'))->toBe(1.0)
         ->and($navigation->evaluate('normalize-space(//section[@aria-label="Video software encoders"]//p[contains(@class,"font-mono")])'))->toBe('libx264')
         ->and($navigation->evaluate('count(//section[@aria-label="Audio software encoders"]//p[contains(@class,"font-mono")])'))->toBe(2.0)
         ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[1])'))->toBe('Status')

@@ -6,6 +6,7 @@ use App\Livewire\Dashboard;
 use App\Livewire\Queue;
 use App\Livewire\Settings\Libraries;
 use App\Livewire\Settings\Status;
+use App\Livewire\Settings\Users;
 use Illuminate\Support\Facades\Route;
 
 Route::livewire('/login', Login::class)
@@ -22,6 +23,7 @@ Route::middleware('auth')->group(function (): void {
     Route::redirect('/settings', '/settings/status')->name('settings.index');
     Route::livewire('/settings/status', Status::class)->name('settings.status');
     Route::livewire('/settings/libraries', Libraries::class)->name('settings.libraries');
+    Route::livewire('/settings/users', Users::class)->middleware('auth.enabled')->name('settings.users');
     Route::redirect('/settings/system-health', '/settings/status')->name('settings.system-health');
     Route::redirect('/libraries', '/settings/libraries')->name('libraries.index');
 });

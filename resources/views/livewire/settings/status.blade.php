@@ -5,7 +5,7 @@
             <p class="text-gray-600 dark:text-gray-300">Hardware acceleration and encoding capabilities on this application server.</p>
         </div>
         <x-button text="Refresh detection" icon="arrow-path" wire:click="refreshDetection" loading="refreshDetection"
-            wire:target="testEncoder,refreshDetection" />
+            wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
     </div>
 
     <div class="grid gap-4 sm:grid-cols-3" aria-label="Encoding summary">
@@ -31,6 +31,38 @@
             </div>
         </x-card>
     </div>
+
+    <x-card>
+        <x-slot:header>
+            <h2 class="font-semibold">Encoding preference</h2>
+        </x-slot:header>
+        <form wire:submit="saveHardwareAcceleration" class="space-y-4">
+            <p class="text-sm text-gray-600 dark:text-gray-300">This preference applies to the whole application. Automatic prefers NVIDIA NVENC, then Intel Quick Sync, then VAAPI, followed by other available encoding backends.</p>
+            <div class="flex flex-wrap items-end gap-4">
+                <div class="min-w-0 grow">
+                    <x-select.native id="preferred-acceleration" wire:model="preferredAcceleration" label="Preferred hardware acceleration">
+                        <option value="auto">Automatic</option>
+                        <option value="software">Software (CPU)</option>
+                        @foreach ($availableBackends as $backend => $label)
+                            <option value="{{ $backend }}">{{ $label }}</option>
+                        @endforeach
+                        @if ($savedAccelerationUnavailable)
+                            <option value="{{ $savedAcceleration }}" disabled>{{ $report['acceleration']['backends'][$savedAcceleration]['label'] ?? strtoupper($savedAcceleration) }} (unavailable)</option>
+                        @endif
+                    </x-select.native>
+                </div>
+                <x-button submit text="Save preference" loading="saveHardwareAcceleration"
+                    wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
+            </div>
+            <p class="text-sm text-gray-600 dark:text-gray-300">Current backend: {{ $effectiveAcceleration === null ? 'Software (CPU)' : $availableBackends[$effectiveAcceleration] }}.</p>
+            @if ($savedAccelerationUnavailable)
+                <p role="alert" class="text-sm text-amber-700 dark:text-amber-400">Your saved hardware backend is unavailable. Encoding will fall back to Software (CPU).</p>
+            @endif
+            @if ($notice)
+                <p role="status" class="text-sm text-green-700 dark:text-green-400">{{ $notice }}</p>
+            @endif
+        </form>
+    </x-card>
 
     <p role="status" class="text-sm text-gray-500 dark:text-gray-400">
         <span wire:loading.remove wire:target="refreshDetection">Last detection: {{ $checkedAt }}</span>
@@ -77,7 +109,6 @@
 
         <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
             <p>Available encoders are grouped into hardware accelerated and software (CPU), then by codec. Hardware encoders require both FFmpeg support and an available acceleration backend.</p>
-            <p>FFmpeg supported only lists hardware encoders whose backend is unavailable or whose individual encoder test failed.</p>
             <p>Test encoder verifies H.264, HEVC, or AV1 with NVIDIA, VAAPI, or Intel Quick Sync using one generated frame and the default device. Tests do not read or change library files.</p>
         </div>
 
@@ -88,8 +119,15 @@
                 </x-slot:header>
                 <div class="grid gap-6 xl:grid-cols-2">
                     @foreach ($categories as $category => $codecs)
+                        @continue($category === 'Supported' && $codecs === [])
                         <section @class(['min-w-0 space-y-4', 'xl:col-span-2' => $category === 'Supported']) wire:key="category-{{ $type }}-{{ $category }}" aria-label="{{ $type }} {{ strtolower($category) }} encoders">
-                            <h3 class="font-semibold">{{ match ($category) { 'Software' => 'Software (CPU)', 'Hardware' => 'Hardware accelerated', default => 'FFmpeg supported only' } }}</h3>
+                            @if ($category === 'Supported')
+                                <details class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
+                                    <summary class="cursor-pointer font-semibold">Supported by FFmpeg, unavailable on this hardware</summary>
+                                    <p class="my-4 text-sm text-gray-600 dark:text-gray-300">These encoders are included in the installed FFmpeg build, but are not available with the current hardware setup. The required hardware or drivers are unavailable, or the encoder check failed.</p>
+                            @else
+                                <h3 class="font-semibold">{{ $category === 'Software' ? 'Software (CPU)' : 'Hardware accelerated' }}</h3>
+                            @endif
                             <div class="max-h-96 space-y-5 overflow-y-auto" tabindex="0" aria-label="{{ $type }} {{ strtolower($category) }} encoders by codec">
                                 @forelse ($codecs as $codec => $encoders)
                                     <div class="space-y-2" wire:key="codec-{{ $type }}-{{ $category }}-{{ $codec }}">
@@ -112,7 +150,7 @@
                                                                         :aria-label="'Test encoder '.$encoder['name']"
                                                                         :wire:click="'testEncoder('.Js::encode($encoder['name']).')'"
                                                                         :loading="'testEncoder('.Js::encode($encoder['name']).')'"
-                                                                        wire:target="testEncoder,refreshDetection" />
+                                                                        wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
                                                                 @endif
                                                             @endif
                                                         </div>
@@ -129,6 +167,9 @@
                                     <p class="text-sm text-gray-500 dark:text-gray-400">No {{ strtolower($category) }} {{ strtolower($type) }} encoders detected.</p>
                                 @endforelse
                             </div>
+                            @if ($category === 'Supported')
+                                </details>
+                            @endif
                         </section>
                     @endforeach
                 </div>

@@ -1,6 +1,6 @@
 <?php
 
-use App\FfmpegHealth;
+use App\Encoding\FfmpegHealth;
 use FFMpeg\Driver\FFMpegDriver;
 use FFMpeg\Exception\ExecutableNotFoundException;
 use Illuminate\Process\PendingProcess;

@@ -2,7 +2,8 @@
 
 namespace App\Livewire\Settings;
 
-use App\FfmpegHealth;
+use App\Encoding\FfmpegHealth;
+use App\Settings\ApplicationSettings;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -26,9 +27,23 @@ class Status extends Component
     #[Locked]
     public string $checkedAt = '';
 
-    public function mount(FfmpegHealth $health): void
+    public string $preferredAcceleration = 'auto';
+
+    public string $notice = '';
+
+    public function mount(FfmpegHealth $health, ApplicationSettings $settings): void
     {
+        $this->preferredAcceleration = $settings->hardwareAcceleration();
         $this->refreshDetection($health);
+    }
+
+    public function saveHardwareAcceleration(ApplicationSettings $settings, FfmpegHealth $health): void
+    {
+        $this->notice = '';
+        $this->validate(['preferredAcceleration' => ['required', 'string', 'max:50']]);
+        $this->refreshDetection($health);
+        $settings->saveHardwareAcceleration($this->preferredAcceleration, $this->report);
+        $this->notice = 'Hardware acceleration preference saved.';
     }
 
     public function refreshDetection(FfmpegHealth $health): void
@@ -55,6 +70,9 @@ class Status extends Component
 
     public function render(): View
     {
+        $settings = app(ApplicationSettings::class);
+        $availableBackends = $settings->availableHardwareBackends($this->report);
+        $savedAcceleration = $settings->hardwareAcceleration();
         $groups = [
             'Video' => ['Hardware' => [], 'Software' => [], 'Supported' => []],
             'Audio' => ['Hardware' => [], 'Software' => [], 'Supported' => []],
@@ -72,6 +90,10 @@ class Status extends Component
         }
 
         return view('livewire.settings.status', [
+            'availableBackends' => $availableBackends,
+            'savedAcceleration' => $savedAcceleration,
+            'effectiveAcceleration' => $settings->resolveHardwareAcceleration($this->report),
+            'savedAccelerationUnavailable' => ! in_array($savedAcceleration, ['auto', 'software'], true) && ! isset($availableBackends[$savedAcceleration]),
             'groups' => $groups,
             'videoCount' => $counts['Video'],
             'audioCount' => $counts['Audio'],

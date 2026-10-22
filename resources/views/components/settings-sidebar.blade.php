@@ -9,5 +9,11 @@
             :active="request()->routeIs('settings.libraries')" class="w-full justify-start">
             Libraries
         </x-navigation-link>
+        @if (config('auth.enabled'))
+            <x-navigation-link :href="route('settings.users')" icon="users"
+                :active="request()->routeIs('settings.users')" class="w-full justify-start">
+                Users
+            </x-navigation-link>
+        @endif
     </nav>
 </aside>
