@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Encoding\Enums\ProbeStatus;
 use App\Scan\Enums\MediaFileStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaFileFactory;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Number;
 
 /**
@@ -27,6 +29,20 @@ class MediaFile extends Model
     public function libraryPath(): BelongsTo
     {
         return $this->belongsTo(LibraryPath::class);
+    }
+
+    /** @return HasOne<MediaProbe, $this> */
+    public function probe(): HasOne
+    {
+        return $this->hasOne(MediaProbe::class);
+    }
+
+    public function hasCurrentProbe(): bool
+    {
+        $probe = $this->probe;
+
+        return $this->status === MediaFileStatus::Present && $probe !== null
+            && $probe->status === ProbeStatus::Completed && $probe->matches($this);
     }
 
     public function formattedSize(): string

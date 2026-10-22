@@ -199,7 +199,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['default'],
+            'queue' => ['default', 'probes'],
             'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => (int) env('HORIZON_WORKERS', 1),
