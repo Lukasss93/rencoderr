@@ -67,6 +67,16 @@ Open `http://localhost:8000`, sign in, and add a library under **Settings → Li
 
 A `.env` file is not required for this example; configure the environment variables and volume paths directly in `compose.yaml`.
 
+### Queue workers
+
+Open **Settings → Workers** to set the maximum number of background workers. Scans and media probes share this pool, with scans taking priority. Horizon keeps at least one worker and scales up as queued work increases.
+
+Saving applies the limit automatically while Horizon runs; no Horizon or container restart is needed. Worker counts adjust gradually. When lowering the limit, retiring workers finish their current jobs within the existing timeouts before exiting. Saving a limit does not resume paused workers.
+
+The page shows the saved maximum, the limit reported by Horizon, and the current worker count. Workers finishing their last job are excluded from that count. If Horizon is offline, the saved limit applies when it starts; if status cannot be read, the page shows that it is unavailable rather than claiming the limit was applied.
+
+The saved maximum persists in `/config` and takes precedence over `HORIZON_WORKERS`. Until you save a maximum, `HORIZON_WORKERS` supplies the default, which is `1`.
+
 ### Hardware acceleration
 
 For Intel or AMD hardware exposed through `/dev/dri`, add this under the `rencoderr` service:

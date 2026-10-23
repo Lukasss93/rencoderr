@@ -13,6 +13,24 @@ class ApplicationSettings
     /** @var list<string> */
     private const array HARDWARE_PRIORITY = ['nvenc', 'qsv', 'vaapi', 'amf', 'videotoolbox', 'vulkan', 'v4l2m2m', 'omx', 'mediacodec', 'mf'];
 
+    public function queueMaxWorkers(): int
+    {
+        $value = Setting::query()->where('key', 'queue_max_workers')->first()?->value;
+
+        return is_int($value) && $value > 0
+            ? $value
+            : max(1, (int) config('horizon.defaults.supervisor-1.maxProcesses', 1));
+    }
+
+    public function saveQueueMaxWorkers(mixed $maxWorkers): void
+    {
+        $validated = Validator::make(['maxWorkers' => $maxWorkers], [
+            'maxWorkers' => ['required', 'integer', 'min:1'],
+        ], attributes: ['maxWorkers' => 'maximum workers'])->validate();
+
+        Setting::query()->updateOrCreate(['key' => 'queue_max_workers'], ['value' => (int) $validated['maxWorkers']]);
+    }
+
     public function hardwareAcceleration(): string
     {
         $value = Setting::query()->where('key', 'hardware_acceleration')->first()?->value;
