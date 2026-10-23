@@ -1,5 +1,8 @@
 <?php
 
+use App\Encoding\Actions\RequestMediaProbe;
+use App\Encoding\Enums\ProbeStatus;
+use App\Jobs\ProbeMediaFile;
 use App\Jobs\ScanLibraryPath;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
@@ -9,12 +12,15 @@ use App\Scan\ExclusionMatcher;
 use App\Scan\LibraryPathResolver;
 use App\Scan\MediaScanner;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 use function Pest\Laravel\assertDatabaseCount;
 use function Pest\Laravel\freezeTime;
 use function Pest\Laravel\travel;
+
+beforeEach(fn () => Queue::fake([ProbeMediaFile::class]));
 
 it('discovers nested videos with metadata and ignores sidecars and links', function (): void {
     freezeTime();
@@ -188,7 +194,7 @@ it('preserves unseen availability after a partial traversal while keeping comple
     $unseen = MediaFile::factory()->for($root, 'libraryPath')->atPath('unseen.mkv')->create();
     $token = (string) Str::uuid();
     $root->update(['scan_status' => ScanStatus::Queued, 'scan_token' => $token]);
-    $scanner = new class(app(ExclusionMatcher::class), app(LibraryPathResolver::class)) extends MediaScanner
+    $scanner = new class(app(ExclusionMatcher::class), app(LibraryPathResolver::class), app(RequestMediaProbe::class)) extends MediaScanner
     {
         /** @return Generator<int, SplFileInfo> */
         protected function files(string $root, array $patterns): Generator
@@ -209,6 +215,9 @@ it('preserves unseen availability after a partial traversal while keeping comple
     expect($root->refresh()->scan_status)->toBe(ScanStatus::Failed)
         ->and($unseen->refresh()->status)->toBe(MediaFileStatus::Present)
         ->and($root->mediaFiles()->where('relative_path', 'observed.mkv')->firstOrFail()->status)->toBe(MediaFileStatus::Present);
+    expect($root->mediaFiles()->where('relative_path', 'observed.mkv')->firstOrFail()->probe()->sole()->status)
+        ->toBe(ProbeStatus::Pending);
+    Queue::assertNotPushed(ProbeMediaFile::class);
 });
 
 it('handles more than one write batch and never changes source files', function (): void {
@@ -226,6 +235,8 @@ it('handles more than one write batch and never changes source files', function 
     scanMediaPath($root);
 
     assertDatabaseCount('media_files', 205);
+    assertDatabaseCount('media_probes', 205);
+    Queue::assertPushed(ProbeMediaFile::class, 205);
     foreach ($files as $name => $contents) {
         expect(File::get($directory.'/'.$name))->toBe($contents);
     }

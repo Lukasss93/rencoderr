@@ -200,10 +200,11 @@ it('processes a real database queue job and accepts the next request once it com
 
     expect($root->refresh()->scan_status)->toBe(ScanStatus::Completed)
         ->and($root->mediaFiles()->firstOrFail()->status)->toBe(MediaFileStatus::Present);
-    assertDatabaseCount('jobs', 0);
+    assertDatabaseCount('jobs', 1);
+    expect(DB::table('jobs')->value('queue'))->toBe('probes');
 
     app(RequestLibraryScan::class)->handle($library);
-    assertDatabaseCount('jobs', 1);
+    assertDatabaseCount('jobs', 2);
 });
 
 it('ignores stale jobs and stale failures instead of overwriting the current scan', function (): void {

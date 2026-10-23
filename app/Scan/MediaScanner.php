@@ -2,8 +2,10 @@
 
 namespace App\Scan;
 
+use App\Encoding\Actions\RequestMediaProbe;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
+use App\Models\MediaProbe;
 use App\Scan\Enums\MediaFileStatus;
 use App\Scan\Enums\ScanStatus;
 use Carbon\CarbonImmutable;
@@ -20,7 +22,7 @@ use SplFileInfo;
 
 class MediaScanner
 {
-    public function __construct(private ExclusionMatcher $exclusions, private LibraryPathResolver $paths) {}
+    public function __construct(private ExclusionMatcher $exclusions, private LibraryPathResolver $paths, private RequestMediaProbe $probes) {}
 
     public function scan(int $pathId, string $token): void
     {
@@ -88,12 +90,15 @@ class MediaScanner
         }
 
         $this->reconcile($pathId, $token, $patterns);
-        $this->currentRoot($pathId, $token)->update([
+        $completed = $this->currentRoot($pathId, $token)->update([
             'scan_status' => ScanStatus::Completed,
             'scan_finished_at' => now(),
             'last_successful_scan_at' => now(),
             'scan_error' => null,
         ]);
+        if ($completed === 1) {
+            $this->probes->forPath($pathId, $token);
+        }
     }
 
     /**
@@ -139,10 +144,15 @@ class MediaScanner
                 return false;
             }
 
+            $hashes = array_column($rows, 'path_hash');
+            $restoredIds = array_values(MediaFile::query()->where('library_path_id', $pathId)->whereIn('path_hash', $hashes)
+                ->where('status', '!=', MediaFileStatus::Present)->get()->map(fn (MediaFile $file): int => $file->id)->all());
+
             MediaFile::query()->upsert($rows, ['library_path_id', 'path_hash'], [
                 'relative_path', 'extension', 'size_bytes', 'filesystem_modified_at',
                 'last_seen_at', 'last_seen_scan_token', 'status',
             ]);
+            $this->probes->sync(MediaFile::query()->where('library_path_id', $pathId)->whereIn('path_hash', $hashes)->get(), $restoredIds);
 
             return true;
         });
@@ -171,6 +181,8 @@ class MediaScanner
                             $missing[] = $file->id;
                         }
                     }
+
+                    MediaProbe::query()->whereIn('media_file_id', $files->modelKeys())->update(RequestMediaProbe::pendingAttributes());
 
                     MediaFile::query()->where('library_path_id', $pathId)->whereIn('id', $missing)
                         ->update(['status' => MediaFileStatus::Missing]);
