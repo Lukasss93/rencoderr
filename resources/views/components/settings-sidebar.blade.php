@@ -15,5 +15,9 @@
                 Users
             </x-navigation-link>
         @endif
+        <x-navigation-link :href="route('settings.workers')" icon="cpu-chip"
+            :active="request()->routeIs('settings.workers')" class="w-full justify-start">
+            Workers
+        </x-navigation-link>
     </nav>
 </aside>

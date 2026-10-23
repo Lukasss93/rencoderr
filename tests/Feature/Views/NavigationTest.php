@@ -45,10 +45,13 @@ it('places library settings inside the settings sidebar', function (): void {
     $response = actingAs(User::factory()->create())->get(route('settings.libraries'))->assertOk()->assertSee('Add your first library');
     $navigation = navigationDocument((string) $response->getContent());
 
-    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(3.0)
+    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(4.0)
         ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[2])'))->toBe('Libraries')
         ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@href)'))->toBe(route('settings.libraries'))
-        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@aria-current)'))->toBe('page');
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@aria-current)'))->toBe('page')
+        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[4])'))->toBe('Workers')
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[4]/@href)'))->toBe(route('settings.workers'))
+        ->and($navigation->evaluate('count(//nav[@aria-label="Settings navigation"]/a[2]/@*[name()="wire:navigate"])'))->toBe(1.0);
 });
 
 it('keeps the settings sidebar within the settings section', function (string $page): void {
