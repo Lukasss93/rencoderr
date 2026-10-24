@@ -120,31 +120,24 @@ Saved limits persist in `/config`. The standard limit keeps the `queue_max_worke
 
 Choose **Transcode library** in **Settings → Libraries**. Only present files with successful probe results matching their current size and modification time are admitted. The run counts missing or stale metadata separately; scan and probe those files before requesting another run. Sources with an unchanged retained output are excluded. Each run has a fixed inventory cutoff and resumes enumeration in chunks of 200. Repeated requests return the library's existing active run.
 
-The **Queue** page lists runs and individual files, encoder, progress, elapsed time, exclusions, skipped files, and errors. Unknown duration is shown without a percentage. **Cancel run** stops admission and waiting work, then terminates running encodes; the library remains busy until their processes stop and incomplete output is removed. **Retry failed** creates a new run containing only failed files that still have current metadata, using current settings when each starts.
+The **Queue** page lists runs and individual files, encoder, progress, elapsed time, exclusions, skipped files, and errors. Unknown duration is shown without a percentage. **Cancel run** stops admission and waiting work, then terminates running encodes within about five seconds; the library remains busy until their processes stop and incomplete output is removed. **Retry failed** creates a new run containing only failed files that still have current metadata, using current settings when each starts.
 
 Supported video is encoded with H.265 or AV1 while preserving resolution, frame timing, bit depth and chroma. Unsupported stream combinations, interlacing, and unsupported formats are skipped. HDR10/HLG preservation uses software when necessary for metadata support; AV1 mastering metadata requires FFmpeg 7.1 or later. Before preserving HDR, a bounded, interruptible frame inspection checks the entire source for dynamic or changing HDR metadata and collects static mastering data. This preparation shares the execution budget and may take time. Dynamic HDR preservation is skipped. HDR-to-SDR conversion uses zscale and Hable tone mapping with BT.709 output tags. Supported subtitles, chapters, metadata and attachments are retained according to the media settings. Unsupported hardware falls back to software for the same codec before encoding; an encoding failure never silently starts a second full encode.
 
-Completed files are labelled **Awaiting quality control**. They are staged as `<transcode-id>/<attempt-token>/output.mkv` on the local `transcodes` disk, under `storage/app/private/transcodes` by default (`/config/storage/app/private/transcodes` in the container). Incomplete attempts use `output.partial.mkv`. Originals are never overwritten, renamed or removed. Savings checks, VMAF evaluation and replacement do not run yet. Completed records are the durable handoff; `TranscodeStaged` is an after-commit notification for future consumers.
+Completed files are labelled **Awaiting quality control**. They are staged as `<transcode-id>/<attempt-token>/output.mkv` on the local `transcodes` disk, under `storage/app/private/transcodes` by default (`/config/storage/app/private/transcodes` in the container). Incomplete attempts use `output.partial.mkv`. Originals are never overwritten, renamed or removed. Savings checks, VMAF evaluation and replacement do not run yet. Completed records are the handoff for those later steps.
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `TRANSCODE_TIMEOUT_SECONDS` | `604800` (seven days) | Execution budget, including preparation, saved per admitted file |
+| `TRANSCODE_TIMEOUT_SECONDS` | `604800` (seven days) | Execution budget for each file, including preparation |
 | `TRANSCODE_STAGING_DISK` | `transcodes` | Local staging disk configured in `config/filesystems.php` |
 | `TRANSCODE_STAGING_PATH` | `storage/app/private/transcodes` | Root of the default staging disk; must be outside every library folder |
 | `HORIZON_TRANSCODE_WORKERS` | `1` | Transcode worker default before saving a limit in Settings |
 
-For execution budget `T`, the external watchdog uses the remaining budget with up to ten seconds to terminate; the job timeout is `T + 60`, overlap and Horizon timeouts are `T + 120`, Redis reservation is `T + 180`, and dispatch uniqueness is `T + 300`. A queued file retains its saved budget across recovery. Drain existing work before lowering the environment timeout, so queue reservations and supervisor limits still cover older payloads.
+For execution budget `T`, FFmpeg's watchdog stops the encode at the deadline with up to ten seconds to terminate. The job timeout is `T + 60`, the transcode supervisor timeout is `T + 120` so a worker retired by a lower limit can finish its encode, and the Redis reservation is `T + 180`.
 
-Laravel's native unique-job and overlap locks use the default application cache (Redis in the container). Publication intent and request/attempt tokens are also stored in the database, so duplicate or stale deliveries cannot accept an output. A confirmed queued job is never redispatched merely because it has waited a long time.
+Each file is claimed with a request token and an attempt token stored in the database, so a duplicate or stale delivery can neither start a second encode nor accept an output. A worker that is asked to stop lets its current encode finish. A file whose job exceeds its timeout is marked failed at once. If its worker dies instead, the file is marked failed when Redis hands the job out again after the reservation expires. **Retry failed** queues failed files in a new run.
 
-The scheduler reconciles interrupted enumeration and publication every minute. Running work is reclaimed only after its recorded deadline plus 120 seconds and after acquiring overlap protection; a stale heartbeat alone is insufficient. A hard-killed worker can therefore wait until its deadline for live recovery. Container startup runs `tasks:recover` exclusively before workers start, clears stale transcode locks and rotates outstanding tokens. Run that command manually only after all workers **and FFmpeg processes** have stopped. Completed staging files remain available.
-
-Inspect reconciliation without changing anything, or apply live reconciliation explicitly:
-
-```bash
-docker compose exec --user rencoderr rencoderr php artisan transcodes:reconcile --json
-docker compose exec --user rencoderr rencoderr php artisan transcodes:reconcile --apply --plain
-```
+Container startup runs `tasks:recover` before workers start. It removes incomplete output, requeues waiting and interrupted files and unfinished enumeration with new tokens, and cancels files whose run was cancelled or whose library was deleted. Jobs still in Redis from before the restart are then ignored. A file whose job could not be queued also waits for the next startup. Run that command manually only after all workers **and FFmpeg processes** have stopped. Completed staging files remain available.
 
 ### Hardware acceleration
 

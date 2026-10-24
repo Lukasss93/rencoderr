@@ -15,13 +15,10 @@ use App\Tasks\Enums\TaskStatus;
 use App\Transcoding\Actions\CancelTranscodeRun;
 use App\Transcoding\Actions\RequestTranscodeRun;
 use App\Transcoding\Actions\RunTranscode;
-use App\Transcoding\Events\TranscodeStaged;
 use App\Transcoding\HdrInspection;
 use App\Transcoding\TranscodeInterrupted;
-use App\Transcoding\TranscodeOutcome;
 use App\Transcoding\TranscodeProcess;
 use App\Transcoding\TranscodeProcessResult;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 
@@ -47,7 +44,6 @@ function executableTranscode(): MediaTranscode
 it('uses the latest settings and stages an immutable handoff without touching the source', function (): void {
     $item = executableTranscode();
     app(MediaPreferences::class)->saveGlobal(new MediaSettings(videoQuality: VideoQuality::SMALLER));
-    Event::fake([TranscodeStaged::class]);
     $runner = Mockery::mock(TranscodeProcess::class);
     $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output, int $remaining, ?float $duration, Closure $interrupted, Closure $progress): TranscodeProcessResult {
         expect($args)->toContain('26');
@@ -58,7 +54,7 @@ it('uses the latest settings and stages an immutable handoff without touching th
         return new TranscodeProcessResult(0, 'driver warning');
     });
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::COMPLETED);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
     $item->refresh();
     expect($item->status)->toBe(TaskStatus::COMPLETED);
     expect($item->output_size_bytes)->toBe(14);
@@ -69,7 +65,6 @@ it('uses the latest settings and stages an immutable handoff without touching th
     expect(file_get_contents($item->source_path))->toBe('video');
     app(MediaPreferences::class)->saveGlobal(new MediaSettings);
     expect($item->settings()->where('key', 'media.video_quality')->sole()->value)->toBe('smaller');
-    Event::assertDispatched(TranscodeStaged::class, 1);
     Queue::assertPushed(TranscodeMediaFile::class, 1);
 });
 
@@ -78,14 +73,15 @@ it('rejects duplicate and stale deliveries before starting an encoder', function
     $runner = Mockery::mock(TranscodeProcess::class);
     $runner->shouldNotReceive('run');
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, 'old-token', $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::STALE);
+    app(RunTranscode::class)->handle($item->id, 'old-token');
+    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
     $item->update(['status' => TaskStatus::RUNNING]);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::STALE);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->attempt_token)->toBeNull();
 });
 
 it('removes only incomplete staging on encoding failure or missing output', function (bool $success): void {
     $item = executableTranscode();
-    Event::fake([TranscodeStaged::class]);
     $runner = Mockery::mock(TranscodeProcess::class);
     $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output) use ($success): TranscodeProcessResult {
         if (! $success) {
@@ -95,11 +91,10 @@ it('removes only incomplete staging on encoding failure or missing output', func
         return new TranscodeProcessResult($success ? 0 : 1, 'encoder diagnostics');
     });
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::FAILED);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
     expect($item->refresh()->status)->toBe(TaskStatus::FAILED);
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
     expect(file_get_contents($item->source_path))->toBe('video');
-    Event::assertNotDispatched(TranscodeStaged::class);
 })->with([true, false]);
 
 it('cancels a running encode before accepting output and permits the next run only after cleanup', function (): void {
@@ -114,7 +109,7 @@ it('cancels a running encode before accepting output and permits the next run on
         return new TranscodeProcessResult(0, '');
     });
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::CANCELLED);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
     expect($item->refresh()->status)->toBe(TaskStatus::CANCELLED);
     expect($item->run->refresh()->status)->toBe(TaskStatus::CANCELLED);
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
@@ -131,8 +126,9 @@ it('does not accept a source changed during encoding', function (): void {
         return new TranscodeProcessResult(0, '');
     });
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::SKIPPED);
-    expect($item->refresh()->skip_reason)->toBe('source_changed');
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->status)->toBe(TaskStatus::SKIPPED);
+    expect($item->skip_reason)->toBe('source_changed');
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
 });
 
@@ -150,7 +146,7 @@ it('cleans renamed output if accepting the database record fails', function (): 
             throw new RuntimeException('completion storage failed');
         }
     });
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::FAILED);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
     expect($item->refresh()->status)->toBe(TaskStatus::FAILED);
 });
@@ -158,23 +154,25 @@ it('cleans renamed output if accepting the database record fails', function (): 
 it('snapshots effective policy settings even when the file is skipped', function (): void {
     $item = executableTranscode();
     app(MediaPreferences::class)->saveGlobal(new MediaSettings(skipVideoCodecs: ['h264']));
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::SKIPPED);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->status)->toBe(TaskStatus::SKIPPED);
     expect($item->settings()->where('key', 'media.skip_video_codecs')->sole()->value)->toBe(['h264']);
 });
 
-it('releases a normal shutdown for another attempt after cleaning partial output', function (): void {
+it('stops an encode when its run is cancelled and removes the partial output', function (): void {
     $item = executableTranscode();
     $runner = Mockery::mock(TranscodeProcess::class);
-    $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output): never {
+    $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output, int $remaining, ?float $duration, Closure $interrupted) use ($item): never {
         file_put_contents($output, 'partial');
-        throw new TranscodeInterrupted('shutdown');
+        app(CancelTranscodeRun::class)->handle($item->run);
+        expect($interrupted())->toBeTrue();
+        throw new TranscodeInterrupted('The transcode was interrupted.');
     });
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => true))->toBe(TranscodeOutcome::INTERRUPTED);
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
-    expect($item->finished_at)->toBeNull();
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->status)->toBe(TaskStatus::CANCELLED);
+    expect($item->run->refresh()->status)->toBe(TaskStatus::CANCELLED);
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
-    expect($item->run->refresh()->finished_at)->toBeNull();
 });
 
 it('fails if staging is within a library and never writes into that source folder', function (): void {
@@ -185,8 +183,9 @@ it('fails if staging is within a library and never writes into that source folde
     $runner = Mockery::mock(TranscodeProcess::class);
     $runner->shouldNotReceive('run');
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::FAILED);
-    expect($item->refresh()->error)->toContain('outside every library');
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->status)->toBe(TaskStatus::FAILED);
+    expect($item->error)->toContain('outside every library');
     expect(file_get_contents($item->source_path))->toBe('video');
 });
 
@@ -202,7 +201,8 @@ it('skips frame-only dynamic HDR before encoding when preservation is requested'
     $runner->shouldReceive('inspectHdr')->once()->andReturn($inspection);
     $runner->shouldNotReceive('run');
     app()->instance(TranscodeProcess::class, $runner);
-    expect(app(RunTranscode::class)->handle($item->id, $item->request_token, $item->execution_limit_seconds, fn (): bool => false))->toBe(TranscodeOutcome::SKIPPED);
-    expect($item->refresh()->skip_reason)->toBe('unsupported_hdr_metadata');
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->status)->toBe(TaskStatus::SKIPPED);
+    expect($item->skip_reason)->toBe('unsupported_hdr_metadata');
     expect(Storage::disk('transcodes')->allFiles())->toBe([]);
 });

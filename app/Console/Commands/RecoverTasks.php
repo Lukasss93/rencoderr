@@ -19,7 +19,7 @@ class RecoverTasks extends Command
         try {
             $this->info('Recovered '.$scans->handle().' folder scans.');
             $this->info('Recovered '.$probes->handle().' media probes.');
-            $this->info('Recovered '.$transcodes->handle(exclusive: true).' media transcodes.');
+            $this->info('Recovered '.$transcodes->handle().' media transcodes.');
         } catch (Throwable $exception) {
             report($exception);
             $this->error('Recovery failed. Startup must be retried before starting workers.');

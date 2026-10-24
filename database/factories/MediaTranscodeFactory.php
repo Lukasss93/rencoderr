@@ -16,10 +16,8 @@ class MediaTranscodeFactory extends Factory
     {
         return [
             'transcode_run_id' => TranscodeRun::factory(), 'media_file_id' => MediaFile::factory(),
-            'file_identity_id' => fn (array $attributes): int => (int) $attributes['media_file_id'],
-            'request_token' => (string) Str::uuid(), 'status' => TaskStatus::PENDING,
+            'request_token' => (string) Str::uuid(), 'status' => TaskStatus::QUEUED,
             'source_path' => '/media/movie.mkv', 'source_size_bytes' => 5, 'source_modified_at' => now(),
-            'execution_limit_seconds' => 604800,
         ];
     }
 }

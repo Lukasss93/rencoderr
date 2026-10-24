@@ -42,10 +42,10 @@ it('keeps identity then status then data then timestamps in transcode tables', f
         'enumeration_finished_at', 'cancel_requested_at', 'started_at', 'finished_at', 'created_at', 'updated_at',
     ]);
     expect(Schema::getColumnListing('media_transcodes'))->toBe([
-        'id', 'transcode_run_id', 'media_file_id', 'file_identity_id', 'request_token', 'attempt_token', 'unique_lock_owner',
-        'status', 'source_path', 'source_size_bytes', 'execution_limit_seconds', 'encoder', 'arguments',
+        'id', 'transcode_run_id', 'media_file_id', 'request_token', 'attempt_token',
+        'status', 'source_path', 'source_size_bytes', 'encoder', 'arguments',
         'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds',
-        'diagnostic_tail', 'error', 'skip_reason', 'source_modified_at', 'dispatch_intended_at', 'dispatched_at',
-        'execution_deadline_at', 'heartbeat_at', 'started_at', 'finished_at', 'created_at', 'updated_at',
+        'diagnostic_tail', 'error', 'skip_reason', 'source_modified_at',
+        'execution_deadline_at', 'started_at', 'finished_at', 'created_at', 'updated_at',
     ]);
 });

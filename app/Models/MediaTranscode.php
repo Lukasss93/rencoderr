@@ -22,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * @property CarbonImmutable|null $finished_at
  * @property list<string>|null $arguments
  */
-#[Fillable(['transcode_run_id', 'media_file_id', 'file_identity_id', 'request_token', 'attempt_token', 'unique_lock_owner', 'status', 'source_path', 'source_size_bytes', 'source_modified_at', 'execution_limit_seconds', 'encoder', 'arguments', 'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds', 'diagnostic_tail', 'error', 'skip_reason', 'dispatch_intended_at', 'dispatched_at', 'execution_deadline_at', 'heartbeat_at', 'started_at', 'finished_at'])]
+#[Fillable(['transcode_run_id', 'media_file_id', 'request_token', 'attempt_token', 'status', 'source_path', 'source_size_bytes', 'source_modified_at', 'encoder', 'arguments', 'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds', 'diagnostic_tail', 'error', 'skip_reason', 'execution_deadline_at', 'started_at', 'finished_at'])]
 class MediaTranscode extends Model
 {
     /** @use HasFactory<MediaTranscodeFactory> */
@@ -63,11 +63,9 @@ class MediaTranscode extends Model
     protected function casts(): array
     {
         return [
-            'status' => TaskStatus::class, 'source_size_bytes' => 'integer', 'file_identity_id' => 'integer',
-            'execution_limit_seconds' => 'integer', 'output_size_bytes' => 'integer',
-            'source_modified_at' => 'immutable_datetime', 'dispatch_intended_at' => 'immutable_datetime',
-            'dispatched_at' => 'immutable_datetime', 'execution_deadline_at' => 'immutable_datetime',
-            'heartbeat_at' => 'immutable_datetime', 'started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime',
+            'status' => TaskStatus::class, 'source_size_bytes' => 'integer', 'output_size_bytes' => 'integer',
+            'source_modified_at' => 'immutable_datetime', 'execution_deadline_at' => 'immutable_datetime',
+            'started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime',
             'arguments' => 'array', 'stream_decisions' => 'array', 'progress_percent' => 'float', 'encoded_seconds' => 'float',
         ];
     }

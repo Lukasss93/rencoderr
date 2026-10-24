@@ -5,136 +5,96 @@ use App\Jobs\TranscodeMediaFile;
 use App\Models\MediaTranscode;
 use App\Models\TranscodeRun;
 use App\Tasks\Enums\TaskStatus;
-use App\Transcoding\Actions\DispatchTranscode;
+use App\Transcoding\Actions\EnumerateTranscodeRun;
 use App\Transcoding\Actions\RecoverTranscodes;
-use Illuminate\Bus\UniqueLock;
-use Illuminate\Contracts\Bus\Dispatcher;
-use Illuminate\Support\Facades\Cache;
+use App\Transcoding\Actions\RunTranscode;
+use App\Transcoding\TranscodeProcess;
+use Illuminate\Queue\MaxAttemptsExceededException;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
-use function Pest\Laravel\freezeTime;
-use function Pest\Laravel\travel;
-
-it('replays unacknowledged publication with the same request and owner but leaves confirmed queues alone', function (): void {
-    Queue::fake();
-    freezeTime();
-    $item = MediaTranscode::factory()->create();
-    app(DispatchTranscode::class)->handle($item->id);
-    $item->refresh();
-    $owner = $item->unique_lock_owner;
-    $token = $item->request_token;
-    $item->update(['dispatched_at' => null]);
-    app(RecoverTranscodes::class)->handle();
-    expect($item->refresh()->unique_lock_owner)->toBe($owner);
-    expect($item->request_token)->toBe($token);
-    expect($item->dispatched_at)->not->toBeNull();
-    travel(30)->days();
-    app(RecoverTranscodes::class)->handle();
-    Queue::assertPushed(TranscodeMediaFile::class, 2);
-});
-
-it('keeps publication failures pending and releases only its own lock', function (): void {
-    $item = MediaTranscode::factory()->create();
-    $bus = Mockery::mock(Dispatcher::class);
-    $bus->shouldReceive('dispatch')->once()->andThrow(new RuntimeException('Redis unavailable'));
-    app()->instance(Dispatcher::class, $bus);
-    expect(fn () => app(DispatchTranscode::class)->handle($item->id))->toThrow(RuntimeException::class, 'Redis unavailable');
-    expect($item->refresh()->status)->toBe(TaskStatus::PENDING);
-    expect($item->unique_lock_owner)->toBeNull();
-    $locks = new UniqueLock(Cache::store());
-    expect($locks->acquire(new TranscodeMediaFile($item->id, $item->file_identity_id, $item->request_token, $item->execution_limit_seconds)))->toBeTrue();
-});
-
-it('waits for the saved deadline plus margin and overlap permission before reclaiming a lost worker', function (): void {
-    Queue::fake();
+it('requeues interrupted files with new tokens at startup and removes only incomplete output', function (): void {
+    Queue::fake([TranscodeMediaFile::class]);
     Storage::fake('transcodes');
-    freezeTime();
-    $item = MediaTranscode::factory()->create([
-        'status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid(),
-        'execution_limit_seconds' => 30, 'execution_deadline_at' => now()->addSeconds(30), 'heartbeat_at' => now()->subDays(10),
-    ]);
-    $job = app(DispatchTranscode::class)->job($item);
-    $overlap = Cache::lock($job->middleware()[0]->getLockKey($job), 1000);
-    $overlap->get();
-    $directory = $item->id.'/'.$item->attempt_token;
-    Storage::disk('transcodes')->put($directory.'/output.mkv', 'uncommitted rename');
-    $token = $item->request_token;
-    app(RecoverTranscodes::class)->handle();
-    expect($item->refresh()->status)->toBe(TaskStatus::RUNNING);
-    travel(151)->seconds();
-    app(RecoverTranscodes::class)->handle();
-    expect($item->refresh()->status)->toBe(TaskStatus::RUNNING);
-    $overlap->release();
-    app(RecoverTranscodes::class)->handle();
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
-    expect($item->request_token)->not->toBe($token);
-    expect($item->execution_limit_seconds)->toBe(30);
-    Storage::disk('transcodes')->assertMissing($directory.'/output.mkv');
-    Queue::assertPushed(TranscodeMediaFile::class, 1);
+    $running = MediaTranscode::factory()->create(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid(), 'started_at' => now()]);
+    $queued = MediaTranscode::factory()->create();
+    $completed = MediaTranscode::factory()->create(['status' => TaskStatus::COMPLETED, 'attempt_token' => (string) Str::uuid(), 'output_path' => 'retained/output.mkv']);
+    $partial = $running->id.'/'.$running->attempt_token.'/output.partial.mkv';
+    Storage::disk('transcodes')->put($partial, 'partial');
+    Storage::disk('transcodes')->put('retained/output.mkv', 'keep');
+    $tokens = [$running->id => $running->request_token, $queued->id => $queued->request_token];
+
+    $recovered = app(RecoverTranscodes::class)->handle();
+
+    expect($recovered)->toBe(2);
+    foreach ([$running, $queued] as $item) {
+        expect($item->refresh()->status)->toBe(TaskStatus::QUEUED)
+            ->and($item->request_token)->not->toBe($tokens[$item->id])
+            ->and($item->attempt_token)->toBeNull()
+            ->and($item->started_at)->toBeNull();
+        Queue::assertPushed(TranscodeMediaFile::class, fn (TranscodeMediaFile $job): bool => $job->transcodeId === $item->id && $job->token === $item->request_token);
+    }
+    expect($completed->refresh()->status)->toBe(TaskStatus::COMPLETED);
+    Storage::disk('transcodes')->assertMissing($partial);
+    Storage::disk('transcodes')->assertExists('retained/output.mkv');
 });
 
-it('clears stale native locks and rotates outstanding tokens only at exclusive startup', function (): void {
-    Queue::fake();
+it('ignores jobs and failures from before the restart', function (): void {
+    Queue::fake([TranscodeMediaFile::class]);
     Storage::fake('transcodes');
     $item = MediaTranscode::factory()->create();
-    app(DispatchTranscode::class)->handle($item->id);
-    $item->refresh();
-    $oldJob = app(DispatchTranscode::class)->job($item);
-    $overlapKey = $oldJob->middleware()[0]->getLockKey($oldJob);
-    Cache::lock($overlapKey, 900)->get();
-    app(RecoverTranscodes::class)->handle(exclusive: true);
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
-    expect($item->request_token)->not->toBe($oldJob->requestToken);
-    $oldJob->failed(new RuntimeException('stale failure'));
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
-    expect(Cache::lock($overlapKey, 10)->get())->toBeTrue();
-    Queue::assertPushed(TranscodeMediaFile::class, 2);
-});
-
-it('resumes unfinished enumeration without changing the cursor or request during periodic reconciliation', function (): void {
-    Queue::fake();
-    $run = TranscodeRun::factory()->create(['inventory_cursor_id' => 200, 'inventory_cutoff_id' => 350]);
-    $token = $run->request_token;
+    $old = new TranscodeMediaFile($item->id, $item->request_token);
     app(RecoverTranscodes::class)->handle();
-    expect($run->refresh()->inventory_cursor_id)->toBe(200);
-    expect($run->request_token)->toBe($token);
-    Queue::assertPushed(QueueLibraryTranscodes::class, fn (QueueLibraryTranscodes $job): bool => $job->runId === $run->id && $job->requestToken === $token);
+    $runner = Mockery::mock(TranscodeProcess::class);
+    $runner->shouldNotReceive('run');
+    app()->instance(TranscodeProcess::class, $runner);
+
+    $old->handle(app(RunTranscode::class));
+    $old->failed(new RuntimeException('stale failure'));
+
+    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED)
+        ->and($item->attempt_token)->toBeNull()
+        ->and($item->error)->toBeNull();
 });
 
-it('keeps completed output and cancels stranded work whose library was deleted', function (): void {
-    Queue::fake();
+it('fails a file for good when its worker died or timed out and removes its partial output', function (): void {
     Storage::fake('transcodes');
-    $completed = MediaTranscode::factory()->create(['status' => TaskStatus::COMPLETED, 'output_path' => 'retained/output.mkv']);
-    Storage::disk('transcodes')->put((string) $completed->output_path, 'keep');
-    $pending = MediaTranscode::factory()->create();
-    $pending->run->library()->firstOrFail()->delete();
-    app(RecoverTranscodes::class)->handle();
-    expect($pending->refresh()->status)->toBe(TaskStatus::CANCELLED);
-    expect($pending->run->refresh()->status)->toBe(TaskStatus::CANCELLED);
-    Storage::disk('transcodes')->assertExists((string) $completed->output_path);
+    $run = TranscodeRun::factory()->create(['status' => TaskStatus::RUNNING, 'enumeration_finished_at' => now()]);
+    $item = MediaTranscode::factory()->for($run, 'run')->create(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid()]);
+    $partial = $item->id.'/'.$item->attempt_token.'/output.partial.mkv';
+    Storage::disk('transcodes')->put($partial, 'partial');
+
+    (new TranscodeMediaFile($item->id, $item->request_token))->failed(new MaxAttemptsExceededException('The worker stopped.'));
+
+    expect($item->refresh()->status)->toBe(TaskStatus::FAILED)
+        ->and($item->error)->toBe('The worker stopped.');
+    expect($run->refresh()->status)->toBe(TaskStatus::FAILED);
+    Storage::disk('transcodes')->assertMissing($partial);
 });
 
-it('recovers an interrupted attempt when releasing its queue message fails', function (): void {
-    Queue::fake();
-    $item = MediaTranscode::factory()->create([
-        'status' => TaskStatus::QUEUED, 'attempt_token' => (string) Str::uuid(), 'dispatched_at' => now(), 'unique_lock_owner' => 'saved-owner',
-    ]);
-    $job = new TranscodeMediaFile($item->id, $item->file_identity_id, $item->request_token, $item->execution_limit_seconds);
-    $job->failed(new RuntimeException('Redis release failed'));
+it('restarts unfinished enumeration at its cursor with a new token at startup', function (): void {
+    Queue::fake([QueueLibraryTranscodes::class]);
+    $run = TranscodeRun::factory()->create(['status' => TaskStatus::RUNNING, 'inventory_cursor_id' => 200, 'inventory_cutoff_id' => 350]);
+    $oldToken = $run->request_token;
+
     app(RecoverTranscodes::class)->handle();
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
-    Queue::assertPushed(TranscodeMediaFile::class, 1);
+
+    expect($run->refresh()->inventory_cursor_id)->toBe(200)
+        ->and($run->request_token)->not->toBe($oldToken);
+    expect(app(EnumerateTranscodeRun::class)->handle($run->id, $oldToken))->toBeFalse();
+    Queue::assertPushed(QueueLibraryTranscodes::class, fn (QueueLibraryTranscodes $job): bool => $job->runId === $run->id && $job->requestToken === $run->request_token);
 });
 
-it('keeps manual reconciliation read only until apply is requested', function (): void {
-    Queue::fake();
-    $item = MediaTranscode::factory()->create();
-    artisanCommand('transcodes:reconcile', ['--json' => true])
-        ->expectsOutput('{"dry_run":true,"active_runs":1,"active_files":1,"recovered_files":0}')->assertSuccessful();
-    expect($item->refresh()->status)->toBe(TaskStatus::PENDING);
-    Queue::assertNothingPushed();
-    artisanCommand('transcodes:reconcile', ['--apply' => true, '--plain' => true])->expectsOutput('recovered_files=1')->assertSuccessful();
-    expect($item->refresh()->status)->toBe(TaskStatus::QUEUED);
+it('cancels stranded work whose library was deleted', function (): void {
+    Queue::fake([TranscodeMediaFile::class]);
+    Storage::fake('transcodes');
+    $item = MediaTranscode::factory()->create(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid()]);
+    $item->run->library()->firstOrFail()->delete();
+
+    app(RecoverTranscodes::class)->handle();
+
+    expect($item->refresh()->status)->toBe(TaskStatus::CANCELLED);
+    expect($item->run->refresh()->status)->toBe(TaskStatus::CANCELLED);
+    Queue::assertNotPushed(TranscodeMediaFile::class);
 });

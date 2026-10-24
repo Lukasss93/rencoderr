@@ -5,17 +5,17 @@ namespace App\Transcoding\Actions;
 use App\Encoding\Enums\HdrMode;
 use App\Encoding\MediaPreferences;
 use App\Library\MediaFilePath;
+use App\Models\Library;
 use App\Models\MediaFile;
 use App\Models\MediaStream;
 use App\Models\MediaTranscode;
 use App\Models\TranscodeRun;
 use App\Tasks\Enums\TaskStatus;
-use App\Transcoding\Events\TranscodeStaged;
 use App\Transcoding\HdrInspection;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\StagingArea;
 use App\Transcoding\TranscodeInterrupted;
-use App\Transcoding\TranscodeOutcome;
+use App\Transcoding\TranscodePlan;
 use App\Transcoding\TranscodeProcess;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
@@ -35,141 +35,127 @@ class RunTranscode
         private FinalizeTranscodeRun $finalize,
     ) {}
 
-    public function stop(): void
+    public function handle(int $transcodeId, string $token): void
     {
-        $this->process->stop();
+        $attempt = (string) Str::uuid();
+        $current = fn (): Builder => MediaTranscode::query()->forRequest($transcodeId, $token)
+            ->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
+        $claimed = MediaTranscode::query()->forRequest($transcodeId, $token)->where('status', TaskStatus::QUEUED)->update([
+            'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(),
+            'execution_deadline_at' => now()->addSeconds((int) config('transcoding.timeout_seconds')),
+            'progress_percent' => null, 'encoded_seconds' => null, 'error' => null, 'diagnostic_tail' => null, 'finished_at' => null,
+        ]);
+        $item = $claimed === 1 ? $current()->first() : null;
+        if ($item === null) {
+            return;
+        }
+
+        try {
+            $skipped = $this->transcode($item, $current);
+            $outcome = $skipped === null ? null
+                : ['status' => TaskStatus::SKIPPED, 'skip_reason' => $skipped->reason, 'error' => $skipped->message];
+        } catch (Throwable $exception) {
+            $outcome = $this->cancelled($item) ? ['status' => TaskStatus::CANCELLED]
+                : ['status' => TaskStatus::FAILED, 'error' => Str::limit($exception->getMessage(), 4000)];
+        }
+        if ($outcome !== null) {
+            $this->staging->clean($item->id, $attempt);
+            $current()->update([...$outcome, 'finished_at' => now()]);
+        }
+        $this->finalize->handle($item->transcode_run_id);
     }
 
-    public function handle(int $transcodeId, string $requestToken, int $executionLimitSeconds, Closure $interrupted): TranscodeOutcome
+    /**
+     * Returns null once the output is accepted. Throws when the attempt fails, is cancelled or was replaced.
+     *
+     * @param  Closure(): Builder<MediaTranscode>  $current
+     */
+    private function transcode(MediaTranscode $item, Closure $current): ?SkippedTranscode
     {
-        $item = $this->claim($transcodeId, $requestToken, $executionLimitSeconds);
-        if ($item === null) {
-            return TranscodeOutcome::STALE;
+        $file = $item->mediaFile()->with(['libraryPath.library', 'probe.streams'])->first();
+        $library = $file?->libraryPath?->library;
+        if ($file === null || $library === null || $this->cancelled($item)) {
+            throw new TranscodeInterrupted('The run was cancelled or its source was deleted.');
         }
-        $attempt = (string) $item->attempt_token;
-        $current = fn (): Builder => MediaTranscode::query()->forRequest($transcodeId, $requestToken)->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
-        $outcome = TranscodeOutcome::FAILED;
-        $attributes = [];
-        $accepted = false;
-        $prepared = false;
-        $safeToClean = true;
+        if (! $this->unchanged($item, $file)) {
+            return new SkippedTranscode('source_changed', 'The source or its metadata changed after admission.');
+        }
+        $plan = $this->plan($item, $file, $library, $current);
+        if ($plan instanceof SkippedTranscode) {
+            return $plan;
+        }
+        $current()->firstOrFail()->update(['encoder' => $plan->encoder->value, 'arguments' => $plan->arguments, 'stream_decisions' => $plan->streamDecisions]);
+        $output = $this->staging->prepare($item->id, (string) $item->attempt_token);
+        $duration = $file->probe?->duration_seconds;
+        $result = $this->process->run($plan->arguments, $output, $this->remaining($item),
+            $duration === null ? null : (float) $duration, $this->stopCheck($item, $current), $this->progress($current));
+        if ($result->exitCode !== 0) {
+            throw new RuntimeException('FFmpeg exited with code '.$result->exitCode.'. '.$result->diagnosticTail);
+        }
 
-        $lastCheck = 0.0;
-        $stop = function () use ($item, $current, $interrupted, &$lastCheck): bool {
-            if ($interrupted()) {
-                return true;
+        return $this->accept($item, $current);
+    }
+
+    /** @param Closure(): Builder<MediaTranscode> $current */
+    private function plan(MediaTranscode $item, MediaFile $file, Library $library, Closure $current): TranscodePlan|SkippedTranscode
+    {
+        $settings = $this->preferences->forLibrary($library);
+        DB::transaction(function () use ($current, $settings): void {
+            $owned = $current()->lockForUpdate()->firstOrFail();
+            $owned->settings()->delete();
+            foreach ($settings->toArray() as $field => $value) {
+                $owned->settings()->create(['key' => 'media.'.$field, 'value' => $value]);
             }
-            if (microtime(true) - $lastCheck < 1) {
+        });
+        $video = $file->probe?->streams->first(fn (MediaStream $stream): bool => $stream->codec_type === 'video' && ! $stream->is_attached_picture);
+        if ($settings->hdrMode === HdrMode::PRESERVE && $video !== null
+            && ! in_array($video->codec_name, $settings->skipVideoCodecs, true)
+            && in_array($video->color_transfer, ['smpte2084', 'arib-std-b67'], true)) {
+            $inspection = $this->process->inspectHdr($item->source_path, $video->stream_index, $this->remaining($item),
+                $this->stopCheck($item, $current), $this->progress($current));
+            if ($inspection->unsupported()) {
+                return new SkippedTranscode('unsupported_hdr_metadata', 'Dynamic or changing HDR metadata cannot be preserved safely.');
+            }
+            $this->includeFrameMetadata($file, $video->stream_index, $inspection);
+        }
+        $plan = $this->builder->handle($file, $settings);
+        if ($plan instanceof TranscodePlan && ($plan->sourcePath !== $item->source_path
+            || $plan->sourceSizeBytes !== $item->source_size_bytes || ! $plan->sourceModifiedAt->equalTo($item->source_modified_at))) {
+            return new SkippedTranscode('source_changed', 'The source changed during preparation.');
+        }
+
+        return $plan;
+    }
+
+    /**
+     * The encoder polls this every 100ms, so the database is checked only every five seconds.
+     *
+     * @param  Closure(): Builder<MediaTranscode>  $current
+     * @return Closure(): bool
+     */
+    private function stopCheck(MediaTranscode $item, Closure $current): Closure
+    {
+        $lastCheck = 0.0;
+
+        return function () use ($item, $current, &$lastCheck): bool {
+            if (microtime(true) - $lastCheck < 5) {
                 return false;
             }
             $lastCheck = microtime(true);
 
             return ! $current()->exists() || $this->cancelled($item);
         };
-        $lastProgress = 0.0;
-        $progress = function (?float $percent, float $seconds, string $diagnostics) use ($current, &$lastProgress): void {
-            if (microtime(true) - $lastProgress < 5) {
-                return;
-            }
-            $lastProgress = microtime(true);
-            $current()->update(['progress_percent' => $percent, 'encoded_seconds' => $seconds,
-                'diagnostic_tail' => substr($diagnostics, -65536), 'heartbeat_at' => now()]);
-        };
-        try {
-            $file = $item->mediaFile()->with(['libraryPath.library', 'probe.streams'])->first();
-            if ($file === null || $this->cancelled($item)) {
-                $outcome = TranscodeOutcome::CANCELLED;
-            } elseif (! $this->unchanged($item, $file)) {
-                $outcome = TranscodeOutcome::SKIPPED;
-                $attributes = ['skip_reason' => 'source_changed', 'error' => 'The source or its metadata changed after admission.'];
-            } else {
-                $library = $file->libraryPath?->library;
-                if ($library === null) {
-                    throw new TranscodeInterrupted('The source library was deleted.');
-                }
-                $settings = $this->preferences->forLibrary($library);
-                DB::transaction(function () use ($current, $settings): void {
-                    $owned = $current()->lockForUpdate()->firstOrFail();
-                    $owned->settings()->delete();
-                    foreach ($settings->toArray() as $field => $value) {
-                        $owned->settings()->create(['key' => 'media.'.$field, 'value' => $value]);
-                    }
-                });
-                $video = $file->probe?->streams->first(fn (MediaStream $stream): bool => $stream->codec_type === 'video' && ! $stream->is_attached_picture);
-                $inspection = null;
-                if ($settings->hdrMode === HdrMode::PRESERVE && $video !== null
-                    && ! in_array($video->codec_name, $settings->skipVideoCodecs, true)
-                    && in_array($video->color_transfer, ['smpte2084', 'arib-std-b67'], true)) {
-                    $inspection = $this->process->inspectHdr($item->source_path, $video->stream_index, $this->remaining($item), $stop, $progress);
-                    if (! $inspection->unsupported()) {
-                        $this->includeFrameMetadata($file, $video->stream_index, $inspection);
-                    }
-                }
-                $plan = $inspection?->unsupported()
-                    ? new SkippedTranscode('unsupported_hdr_metadata', 'Dynamic or changing HDR metadata cannot be preserved safely.')
-                    : $this->builder->handle($file, $settings);
-                if (! $plan instanceof SkippedTranscode && ($plan->sourcePath !== $item->source_path
-                    || $plan->sourceSizeBytes !== $item->source_size_bytes || ! $plan->sourceModifiedAt->equalTo($item->source_modified_at))) {
-                    $plan = new SkippedTranscode('source_changed', 'The source changed during preparation.');
-                }
-                if ($plan instanceof SkippedTranscode) {
-                    $outcome = TranscodeOutcome::SKIPPED;
-                    $attributes = ['skip_reason' => $plan->reason, 'error' => $plan->message];
-                } else {
-                    DB::transaction(function () use ($current, $plan): void {
-                        $owned = $current()->lockForUpdate()->firstOrFail();
-                        $owned->update(['encoder' => $plan->encoder->value, 'arguments' => $plan->arguments, 'stream_decisions' => $plan->streamDecisions]);
-                    });
-                    $output = $this->staging->prepare($transcodeId, $attempt);
-                    $prepared = true;
-                    $remaining = $this->remaining($item);
-                    $result = $this->process->run($plan->arguments, $output, $remaining,
-                        $file->probe?->duration_seconds === null ? null : (float) $file->probe->duration_seconds, $stop, $progress);
-                    $attributes['diagnostic_tail'] = substr($result->diagnosticTail, -65536);
-                    if ($this->cancelled($item)) {
-                        $outcome = TranscodeOutcome::CANCELLED;
-                    } elseif ($interrupted()) {
-                        $outcome = TranscodeOutcome::INTERRUPTED;
-                    } elseif ($result->exitCode !== 0) {
-                        throw new RuntimeException('FFmpeg exited with code '.$result->exitCode.'. '.$result->diagnosticTail);
-                    } else {
-                        $outcome = $this->accept($item, $current, $attributes);
-                        $accepted = $outcome === TranscodeOutcome::COMPLETED;
-                    }
-                }
-            }
-        } catch (TranscodeInterrupted $exception) {
-            $outcome = $this->cancelled($item) ? TranscodeOutcome::CANCELLED
-                : ($interrupted() ? TranscodeOutcome::INTERRUPTED : TranscodeOutcome::STALE);
-        } catch (Throwable $exception) {
-            // A commit may have succeeded before a connection error reached the caller.
-            $safeToClean = false;
-            $accepted = MediaTranscode::query()->forRequest($transcodeId, $requestToken)->where('attempt_token', $attempt)->where('status', TaskStatus::COMPLETED)->exists();
-            $safeToClean = true;
-            $outcome = $accepted ? TranscodeOutcome::COMPLETED : TranscodeOutcome::FAILED;
-            $attributes['error'] = Str::limit($exception->getMessage(), 4000);
-        } finally {
-            if (! $accepted && $safeToClean) {
-                if ($prepared) {
-                    $this->staging->clean($transcodeId, $attempt);
-                }
-                $status = match ($outcome) {
-                    TranscodeOutcome::INTERRUPTED => TaskStatus::QUEUED,
-                    TranscodeOutcome::CANCELLED => TaskStatus::CANCELLED,
-                    TranscodeOutcome::SKIPPED => TaskStatus::SKIPPED,
-                    default => TaskStatus::FAILED,
-                };
-                if ($outcome === TranscodeOutcome::INTERRUPTED) {
-                    $attributes['dispatched_at'] = null;
-                    $attributes['dispatch_intended_at'] = now();
-                }
-                $current()->update([...$attributes, 'status' => $status,
-                    'finished_at' => $outcome === TranscodeOutcome::INTERRUPTED ? null : now()]);
-            }
-            $this->finalize->handle($item->transcode_run_id);
-        }
+    }
 
-        return $outcome;
+    /**
+     * @param  Closure(): Builder<MediaTranscode>  $current
+     * @return Closure(?float, float, string): void
+     */
+    private function progress(Closure $current): Closure
+    {
+        return function (?float $percent, float $seconds, string $diagnostics) use ($current): void {
+            $current()->update(['progress_percent' => $percent, 'encoded_seconds' => $seconds, 'diagnostic_tail' => substr($diagnostics, -65536)]);
+        };
     }
 
     private function remaining(MediaTranscode $item): int
@@ -212,24 +198,6 @@ class RunTranscode
         $probe->setAttribute('metadata', [...$metadata, 'streams' => $streams]);
     }
 
-    private function claim(int $id, string $token, int $budget): ?MediaTranscode
-    {
-        return DB::transaction(function () use ($id, $token, $budget): ?MediaTranscode {
-            $runId = MediaTranscode::query()->whereKey($id)->value('transcode_run_id');
-            $run = TranscodeRun::query()->whereKey($runId)->lockForUpdate()->first();
-            $item = MediaTranscode::query()->forRequest($id, $token)->where('status', TaskStatus::QUEUED)
-                ->where('execution_limit_seconds', $budget)->lockForUpdate()->first();
-            if ($item === null || $run === null || $run->cancel_requested_at !== null || $run->finished_at !== null) {
-                return null;
-            }
-            $item->update(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid(),
-                'started_at' => now(), 'execution_deadline_at' => now()->addSeconds($budget), 'heartbeat_at' => now(),
-                'progress_percent' => null, 'encoded_seconds' => null, 'error' => null, 'diagnostic_tail' => null, 'finished_at' => null]);
-
-            return $item;
-        });
-    }
-
     /** @phpstan-impure */
     private function cancelled(MediaTranscode $item): bool
     {
@@ -250,35 +218,27 @@ class RunTranscode
         }
     }
 
-    /** @param Closure(): Builder<MediaTranscode> $current
-     * @param  array<string, mixed>  $attributes
-     */
-    private function accept(MediaTranscode $item, Closure $current, array $attributes): TranscodeOutcome
+    /** @param Closure(): Builder<MediaTranscode> $current */
+    private function accept(MediaTranscode $item, Closure $current): ?SkippedTranscode
     {
-        return DB::transaction(function () use ($item, $current, $attributes): TranscodeOutcome {
+        return DB::transaction(function () use ($item, $current): ?SkippedTranscode {
             $run = TranscodeRun::query()->whereKey($item->transcode_run_id)->lockForUpdate()->firstOrFail();
             $file = MediaFile::query()->with(['libraryPath', 'probe'])->lockForUpdate()->find($item->media_file_id);
             $owned = $current()->lockForUpdate()->first();
-            if ($owned === null) {
-                return TranscodeOutcome::STALE;
-            }
-            if ($run->cancel_requested_at !== null || $run->library_id === null || $file === null) {
-                return TranscodeOutcome::CANCELLED;
+            if ($owned === null || $run->cancel_requested_at !== null || $run->library_id === null || $file === null) {
+                throw new TranscodeInterrupted('The attempt was cancelled or replaced before its output was accepted.');
             }
             if (! $this->unchanged($item, $file)) {
-                $owned->update(['skip_reason' => 'source_changed', 'error' => 'The source changed during encoding.']);
-
-                return TranscodeOutcome::SKIPPED;
+                return new SkippedTranscode('source_changed', 'The source changed during encoding.');
             }
             if ($owned->execution_deadline_at === null || $owned->execution_deadline_at->isPast()) {
                 throw new RuntimeException('The transcode execution deadline expired.');
             }
             $output = $this->staging->accept($item->id, (string) $item->attempt_token);
-            $owned->update([...$attributes, 'status' => TaskStatus::COMPLETED, 'output_path' => $output,
-                'output_size_bytes' => $this->staging->disk()->size($output), 'progress_percent' => 100, 'finished_at' => now(), 'heartbeat_at' => now()]);
-            DB::afterCommit(fn () => rescue(fn () => TranscodeStaged::dispatch($item->id)));
+            $owned->update(['status' => TaskStatus::COMPLETED, 'output_path' => $output,
+                'output_size_bytes' => $this->staging->disk()->size($output), 'progress_percent' => 100, 'finished_at' => now()]);
 
-            return TranscodeOutcome::COMPLETED;
+            return null;
         });
     }
 }

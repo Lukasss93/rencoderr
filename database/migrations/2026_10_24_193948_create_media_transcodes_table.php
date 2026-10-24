@@ -12,14 +12,11 @@ return new class extends Migration
             $table->id();
             $table->foreignId('transcode_run_id')->constrained();
             $table->foreignId('media_file_id')->nullable()->constrained()->nullOnDelete();
-            $table->unsignedBigInteger('file_identity_id');
             $table->uuid('request_token');
             $table->uuid('attempt_token')->nullable();
-            $table->string('unique_lock_owner')->nullable();
             $table->string('status')->default('pending');
             $table->text('source_path');
             $table->unsignedBigInteger('source_size_bytes');
-            $table->unsignedInteger('execution_limit_seconds');
             $table->string('encoder')->nullable();
             $table->json('arguments')->nullable();
             $table->json('stream_decisions')->nullable();
@@ -31,17 +28,12 @@ return new class extends Migration
             $table->text('error')->nullable();
             $table->string('skip_reason')->nullable();
             $table->timestamp('source_modified_at');
-            $table->timestamp('dispatch_intended_at')->nullable();
-            $table->timestamp('dispatched_at')->nullable();
             $table->timestamp('execution_deadline_at')->nullable();
-            $table->timestamp('heartbeat_at')->nullable();
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();
             $table->timestamps();
             $table->unique(['transcode_run_id', 'media_file_id']);
             $table->index(['transcode_run_id', 'status']);
-            $table->index(['status', 'dispatched_at']);
-            $table->index(['status', 'execution_deadline_at']);
         });
     }
 

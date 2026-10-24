@@ -130,7 +130,7 @@ class TranscodeProcess
         }
     }
 
-    public function stop(): void
+    private function stop(): void
     {
         $this->stopped = true;
         if ($this->group !== null) {
