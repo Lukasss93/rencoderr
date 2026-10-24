@@ -2,37 +2,37 @@
 
 namespace App\Livewire\Settings;
 
-use App\Settings\ApplicationSettings;
-use App\Settings\HorizonWorkers;
+use App\Workers\HorizonWorkers;
+use App\Workers\WorkerLimit;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 #[Title('Worker settings')]
 class Workers extends Component
 {
+    use Interactions;
+
     public string $maxWorkers = '1';
 
-    public string $notice = '';
-
-    public function mount(ApplicationSettings $settings): void
+    public function mount(WorkerLimit $limit): void
     {
-        $this->maxWorkers = (string) $settings->queueMaxWorkers();
+        $this->maxWorkers = (string) $limit->get();
     }
 
-    public function save(ApplicationSettings $settings): void
+    public function save(WorkerLimit $limit): void
     {
-        $this->notice = '';
-        $this->resetValidation();
-        $settings->saveQueueMaxWorkers($this->maxWorkers);
-        $this->notice = 'Worker limit saved.';
+        $this->validate(['maxWorkers' => ['required', 'integer', 'min:1']], attributes: ['maxWorkers' => 'maximum workers']);
+        $limit->save((int) $this->maxWorkers);
+        $this->toast()->success('Worker limit saved.')->send();
     }
 
-    public function render(): View
+    public function render(WorkerLimit $limit, HorizonWorkers $workers): View
     {
         return view('livewire.settings.workers', [
-            'savedLimit' => app(ApplicationSettings::class)->queueMaxWorkers(),
-            'runtime' => app(HorizonWorkers::class)->status(),
+            'savedLimit' => $limit->get(),
+            'status' => $workers->status(),
         ])->layoutData(['settingsPage' => true]);
     }
 }

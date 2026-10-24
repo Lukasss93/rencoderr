@@ -1,32 +1,30 @@
+@use('App\Ffmpeg\Enums\HardwareBackend')
+
 <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-2">
-            <h1 class="text-3xl font-semibold tracking-tight">Status</h1>
-            <p class="text-gray-600 dark:text-gray-300">Hardware acceleration and encoding capabilities on this application server.</p>
-        </div>
+    <x-page-header title="Status" description="Hardware acceleration and encoding capabilities on this application server.">
         <x-button text="Refresh detection" icon="arrow-path" wire:click="refreshDetection" loading="refreshDetection"
             wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
-    </div>
+    </x-page-header>
 
     <div class="grid gap-4 sm:grid-cols-3" aria-label="Encoding summary">
         <x-card>
             <div class="space-y-2">
                 <h2 class="text-sm font-medium text-gray-500 dark:text-gray-400">FFmpeg</h2>
-                <p class="break-all text-xl font-semibold">{{ $report['version'] ?? 'Unavailable' }}</p>
-                <x-badge :text="$report['error'] ? 'Needs attention' : 'Detected'" :color="$report['error'] ? 'yellow' : 'green'" light />
+                <p class="break-all text-xl font-semibold">{{ $detection->version ?? 'Unavailable' }}</p>
+                <x-badge :text="$detection->error ? 'Needs attention' : 'Detected'" :color="$detection->error ? 'yellow' : 'green'" light />
             </div>
         </x-card>
         <x-card>
             <div class="space-y-2">
                 <h2 class="text-sm font-medium text-gray-500 dark:text-gray-400">Video</h2>
-                <p class="text-3xl font-semibold">{{ $report['error'] ? '—' : $videoCount }}</p>
+                <p class="text-3xl font-semibold">{{ $detection->error ? '—' : $videoCount }}</p>
                 <p class="text-sm text-gray-500 dark:text-gray-400">Available encoders</p>
             </div>
         </x-card>
         <x-card>
             <div class="space-y-2">
                 <h2 class="text-sm font-medium text-gray-500 dark:text-gray-400">Audio</h2>
-                <p class="text-3xl font-semibold">{{ $report['error'] ? '—' : $audioCount }}</p>
+                <p class="text-3xl font-semibold">{{ $detection->error ? '—' : $audioCount }}</p>
                 <p class="text-sm text-gray-500 dark:text-gray-400">Available encoders</p>
             </div>
         </x-card>
@@ -43,37 +41,34 @@
                     <x-select.native id="preferred-acceleration" wire:model="preferredAcceleration" label="Preferred hardware acceleration">
                         <option value="auto">Automatic</option>
                         <option value="software">Software (CPU)</option>
-                        @foreach ($availableBackends as $backend => $label)
-                            <option value="{{ $backend }}">{{ $label }}</option>
+                        @foreach ($availableBackends as $backend)
+                            <option value="{{ $backend->value }}">{{ $backend->label() }}</option>
                         @endforeach
                         @if ($savedAccelerationUnavailable)
-                            <option value="{{ $savedAcceleration }}" disabled>{{ $report['acceleration']['backends'][$savedAcceleration]['label'] ?? strtoupper($savedAcceleration) }} (unavailable)</option>
+                            <option value="{{ $savedAcceleration }}" disabled>{{ HardwareBackend::labelFor($savedAcceleration) }} (unavailable)</option>
                         @endif
                     </x-select.native>
                 </div>
                 <x-button submit text="Save preference" loading="saveHardwareAcceleration"
                     wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
             </div>
-            <p class="text-sm text-gray-600 dark:text-gray-300">Current backend: {{ $effectiveAcceleration === null ? 'Software (CPU)' : $availableBackends[$effectiveAcceleration] }}.</p>
+            <p class="text-sm text-gray-600 dark:text-gray-300">Current backend: {{ $effectiveAcceleration?->label() ?? 'Software (CPU)' }}.</p>
             @if ($savedAccelerationUnavailable)
                 <p role="alert" class="text-sm text-amber-700 dark:text-amber-400">Your saved hardware backend is unavailable. Encoding will fall back to Software (CPU).</p>
-            @endif
-            @if ($notice)
-                <p role="status" class="text-sm text-green-700 dark:text-green-400">{{ $notice }}</p>
             @endif
         </form>
     </x-card>
 
     <p role="status" class="text-sm text-gray-500 dark:text-gray-400">
-        <span wire:loading.remove wire:target="refreshDetection">Last detection: {{ $checkedAt }}</span>
+        <span wire:loading.remove wire:target="refreshDetection">Last detection: {{ $detection->detectedAt->utc()->format('Y-m-d H:i:s') }} UTC</span>
         <span wire:loading wire:target="refreshDetection">Checking hardware acceleration and installed encoders…</span>
     </p>
 
-    @if ($report['error'])
+    @if ($detection->error)
         <x-card>
             <div role="alert" class="space-y-2">
-                <h2 class="font-semibold text-red-600 dark:text-red-400">{{ $report['version'] ? 'Detection failed' : 'FFmpeg unavailable' }}</h2>
-                <p class="text-sm text-gray-600 dark:text-gray-300">{{ $report['error'] }}</p>
+                <h2 class="font-semibold text-red-600 dark:text-red-400">{{ $detection->version ? 'Detection failed' : 'FFmpeg unavailable' }}</h2>
+                <p class="text-sm text-gray-600 dark:text-gray-300">{{ $detection->error }}</p>
             </div>
         </x-card>
     @else
@@ -83,23 +78,14 @@
             </x-slot:header>
             <div class="space-y-4">
                 <p class="text-sm text-gray-600 dark:text-gray-300">Availability checks use the default device. Device availability and codec support are checked separately. A failed check may mean a missing driver, an inaccessible device, or a timeout.</p>
-                @if ($report['acceleration']['error'])
-                    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $report['acceleration']['error'] }}</p>
+                @if ($detection->accelerationError)
+                    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $detection->accelerationError }}</p>
                 @endif
                 <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    @forelse ($report['acceleration']['backends'] as $name => $backend)
-                        <section class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700" wire:key="backend-{{ $name }}" aria-label="{{ $backend['label'] }}">
-                            <h3 class="font-semibold">{{ $backend['label'] }}</h3>
-                            <x-badge :text="$backend['available'] ? 'Available' : 'Unavailable'"
-                                :color="$backend['available'] ? 'green' : 'gray'" light />
-                            <p class="text-sm text-gray-500 dark:text-gray-400">{{ $backend['encoders'] }} installed {{ $backend['encoders'] === 1 ? 'encoder' : 'encoders' }}</p>
-                            <details class="text-sm text-gray-600 dark:text-gray-300">
-                                <summary class="cursor-pointer">Detection details</summary>
-                                <p class="mt-2 break-words whitespace-pre-line">{{ $backend['message'] }}</p>
-                            </details>
-                        </section>
+                    @forelse ($detection->backends as $name => $backend)
+                        <x-encoding.backend-card :backend="$backend" wire:key="backend-{{ $name }}" />
                     @empty
-                        @unless ($report['acceleration']['error'])
+                        @unless ($detection->accelerationError)
                             <p class="text-sm text-gray-500 dark:text-gray-400">No hardware acceleration backends detected.</p>
                         @endunless
                     @endforelse
@@ -134,32 +120,8 @@
                                         <h4 class="text-sm font-semibold uppercase tracking-wide">{{ $codec }}</h4>
                                         <div class="divide-y divide-gray-100 dark:divide-dark-700">
                                             @foreach ($encoders as $encoder)
-                                                <div class="space-y-2 py-3" wire:key="encoder-{{ $encoder['name'] }}">
-                                                    <div class="flex flex-wrap items-center justify-between gap-2">
-                                                        <p class="break-all font-mono text-sm">{{ $encoder['name'] }}</p>
-                                                        <div class="flex flex-wrap items-center gap-2">
-                                                            @if ($encoder['hardware'])
-                                                                <x-badge :text="strtoupper($encoder['backend'])" color="gray" light />
-                                                                @if (isset($checks[$encoder['name']]))
-                                                                    <x-badge :text="$checks[$encoder['name']]['successful'] ? 'Verified' : 'Test failed'"
-                                                                        :color="$checks[$encoder['name']]['successful'] ? 'green' : 'red'" light />
-
-                                                                @endif
-                                                                @if ($encoder['testable'])
-                                                                    <x-button text="Test encoder" sm flat
-                                                                        :aria-label="'Test encoder '.$encoder['name']"
-                                                                        :wire:click="'testEncoder('.Js::encode($encoder['name']).')'"
-                                                                        :loading="'testEncoder('.Js::encode($encoder['name']).')'"
-                                                                        wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
-                                                                @endif
-                                                            @endif
-                                                        </div>
-                                                    </div>
-                                                    <p class="text-sm text-gray-500 dark:text-gray-400">{{ $encoder['description'] }}</p>
-                                                    @if (isset($checks[$encoder['name']]))
-                                                        <p role="status" class="break-words whitespace-pre-line text-sm text-gray-600 dark:text-gray-300">{{ $checks[$encoder['name']]['message'] }}</p>
-                                                    @endif
-                                                </div>
+                                                <x-encoding.encoder-row :encoder="$encoder" :check="$detection->checks[$encoder->name] ?? null"
+                                                    wire:key="encoder-{{ $encoder->name }}" />
                                             @endforeach
                                         </div>
                                     </div>

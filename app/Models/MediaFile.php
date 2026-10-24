@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
-use App\Encoding\Enums\ProbeStatus;
-use App\Scan\Enums\MediaFileStatus;
+use App\Library\Enums\MediaFileStatus;
+use App\Models\Builders\MediaFileBuilder;
+use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaFileFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,6 +22,7 @@ use Illuminate\Support\Number;
  * @property CarbonImmutable $last_seen_at
  */
 #[Fillable(['library_path_id', 'relative_path', 'path_hash', 'extension', 'size_bytes', 'filesystem_modified_at', 'first_seen_at', 'last_seen_at', 'last_seen_scan_token', 'status'])]
+#[UseEloquentBuilder(MediaFileBuilder::class)]
 class MediaFile extends Model
 {
     /** @use HasFactory<MediaFileFactory> */
@@ -41,8 +44,8 @@ class MediaFile extends Model
     {
         $probe = $this->probe;
 
-        return $this->status === MediaFileStatus::Present && $probe !== null
-            && $probe->status === ProbeStatus::Completed && $probe->matches($this);
+        return $this->status === MediaFileStatus::PRESENT && $probe !== null
+            && $probe->status === TaskStatus::COMPLETED && $probe->matches($this);
     }
 
     public function formattedSize(): string
@@ -50,7 +53,6 @@ class MediaFile extends Model
         return Number::fileSize($this->size_bytes, maxPrecision: 2);
     }
 
-    /** @return array<string, string> */
     protected function casts(): array
     {
         return [

@@ -1,17 +1,11 @@
+@use('App\Workers\Enums\WorkerState')
+
 <div class="space-y-6" wire:poll.5s>
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-2">
-            <h1 class="text-3xl font-semibold tracking-tight">Workers</h1>
-            <p class="text-gray-600 dark:text-gray-300">Control how many background jobs can run at once.</p>
-        </div>
+    <x-page-header title="Workers" description="Control how many background jobs can run at once.">
         <x-navigation-link :href="route('horizon.index')" icon="chart-bar" :navigate="false">
             Horizon
         </x-navigation-link>
-    </div>
-
-    @if ($notice !== '')
-        <p role="status" class="rounded-lg bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-950 dark:text-primary-200">{{ $notice }}</p>
-    @endif
+    </x-page-header>
 
     <x-card header="Queue workers">
         <form wire:submit="save" class="space-y-4">
@@ -31,7 +25,7 @@
             <dl class="grid gap-4 sm:grid-cols-2">
                 <div>
                     <dt class="text-sm text-gray-500 dark:text-gray-400">Status</dt>
-                    <dd class="font-semibold">{{ $runtime['state'] === 'unavailable' ? 'Status unavailable' : ucfirst($runtime['state']) }}</dd>
+                    <dd class="font-semibold">{{ $status->state->label() }}</dd>
                 </div>
                 <div>
                     <dt class="text-sm text-gray-500 dark:text-gray-400">Saved maximum</dt>
@@ -39,23 +33,23 @@
                 </div>
                 <div>
                     <dt class="text-sm text-gray-500 dark:text-gray-400">Current worker limit</dt>
-                    <dd class="font-semibold">{{ $runtime['limit'] ?? 'Unknown' }}</dd>
+                    <dd class="font-semibold">{{ $status->limit ?? 'Unknown' }}</dd>
                 </div>
                 <div>
                     <dt class="text-sm text-gray-500 dark:text-gray-400">Current workers</dt>
-                    <dd class="font-semibold">{{ $runtime['workers'] ?? 'Unknown' }}</dd>
+                    <dd class="font-semibold">{{ $status->workers ?? 'Unknown' }}</dd>
                 </div>
             </dl>
 
-            @if ($runtime['state'] === 'offline')
+            @if ($status->state === WorkerState::OFFLINE)
                 <p class="text-sm text-gray-500 dark:text-gray-400">The saved limit will apply when Horizon starts.</p>
-            @elseif ($runtime['state'] === 'unavailable')
+            @elseif ($status->state === WorkerState::UNAVAILABLE)
                 <p class="text-sm text-gray-500 dark:text-gray-400">Worker status could not be read. You can still save a limit; its application cannot currently be confirmed.</p>
             @else
-                @if ($runtime['limit'] !== $savedLimit)
+                @if ($status->limit !== $savedLimit)
                     <p class="text-sm text-gray-500 dark:text-gray-400">Waiting for Horizon to pick up the saved limit.</p>
                 @endif
-                @if ($runtime['state'] === 'paused')
+                @if ($status->state === WorkerState::PAUSED)
                     <p class="text-sm text-gray-500 dark:text-gray-400">Horizon is paused. Saving a limit does not resume processing.</p>
                 @endif
                 <p class="text-sm text-gray-500 dark:text-gray-400">Worker counts adjust gradually with demand. Workers finishing their last job are not included in the current count.</p>

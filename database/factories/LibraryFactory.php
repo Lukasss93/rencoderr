@@ -8,7 +8,6 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 /** @extends Factory<Library> */
 class LibraryFactory extends Factory
 {
-    /** @return array<string, mixed> */
     public function definition(): array
     {
         return [

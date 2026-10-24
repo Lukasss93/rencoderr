@@ -3,20 +3,19 @@
 namespace App\Console\Commands;
 
 use App\Models\User;
+use App\Users\Actions\SaveUser;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password;
 
 #[Signature('user:create')]
 #[Description('Create an account with interactive name, email, and password prompts')]
 class CreateUser extends Command
 {
-    /**
-     * Execute the console command.
-     */
-    public function handle(): int
+    public function handle(SaveUser $saveUser): int
     {
         if (! $this->input->isInteractive()) {
             $this->error('This command requires interactive input.');
@@ -37,7 +36,7 @@ class CreateUser extends Command
         ], [
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'confirmed'],
+            'password' => ['required', 'string', 'confirmed', Password::defaults()],
         ]);
 
         if ($validator->fails()) {
@@ -48,11 +47,7 @@ class CreateUser extends Command
             return self::FAILURE;
         }
 
-        User::query()->create([
-            'name' => $name,
-            'email' => $email,
-            'password' => $password,
-        ]);
+        $saveUser->handle(new User, $name, $email, $password);
 
         $this->info('User created successfully.');
 

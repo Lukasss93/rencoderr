@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('library_paths', function (Blueprint $table) {
@@ -16,7 +13,7 @@ return new class extends Migration
             $table->foreignId('library_id')->constrained()->cascadeOnDelete();
             $table->text('path');
             $table->char('path_hash', 64)->unique();
-            $table->string('scan_status', 20)->default('idle');
+            $table->string('scan_status', 20)->default('pending');
             $table->uuid('scan_token')->nullable();
             $table->timestamp('scan_requested_at')->nullable();
             $table->timestamp('scan_started_at')->nullable();
@@ -28,9 +25,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('library_paths');

@@ -2,36 +2,29 @@
 
 namespace App\Livewire\Settings;
 
+use App\Livewire\Forms\UserForm;
 use App\Models\User;
-use Illuminate\Auth\Events\PasswordReset;
+use App\Users\Actions\SaveUser;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 #[Title('User settings')]
 class Users extends Component
 {
+    use Interactions;
+
     public bool $showEditor = false;
 
     #[Locked]
     public ?int $editingId = null;
 
-    public string $name = '';
-
-    public string $email = '';
-
-    public string $password = '';
-
-    public string $passwordConfirmation = '';
-
-    public string $notice = '';
+    public UserForm $form;
 
     public function boot(): void
     {
@@ -49,8 +42,7 @@ class Users extends Component
         $user = User::query()->findOrFail($id);
         $this->create();
         $this->editingId = $user->id;
-        $this->name = $user->name;
-        $this->email = $user->email;
+        $this->form->fillFrom($user);
     }
 
     public function cancel(): void
@@ -58,41 +50,17 @@ class Users extends Component
         $this->resetEditor();
     }
 
-    public function save(): void
+    public function save(SaveUser $saveUser): void
     {
         $user = $this->editingId === null ? new User : User::query()->findOrFail($this->editingId);
-        $this->name = trim($this->name);
-        $this->email = Str::lower(trim($this->email));
-        $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user)],
-            'password' => [$user->exists ? 'nullable' : 'required', 'string', 'confirmed:passwordConfirmation', Password::defaults()],
-        ]);
-
-        $isNewUser = ! $user->exists;
-        $passwordChanged = $this->password !== '';
-        $user->name = $this->name;
-        $user->email = $this->email;
-
-        if ($user->isDirty('email')) {
-            $user->email_verified_at = null;
-        }
-
-        if ($passwordChanged) {
-            $user->password = $this->password;
-            $user->remember_token = Str::random(60);
-        }
-
-        $user->save();
-
-        if (! $isNewUser && $passwordChanged) {
-            event(new PasswordReset($user));
-        }
-
+        $isNew = ! $user->exists;
+        $this->form->validateFor($user);
+        $password = $this->form->newPassword();
+        $saveUser->handle($user, $this->form->name, $this->form->email, $password);
         $this->resetEditor();
-        $this->notice = $isNewUser ? 'User created.' : 'User saved.';
+        $this->toast()->success($isNew ? 'User created.' : 'User saved.')->send();
 
-        if ($passwordChanged && $user->id === Auth::id()) {
+        if ($password !== null && $user->id === Auth::id()) {
             Auth::logout();
             session()->invalidate();
             session()->regenerateToken();
@@ -113,7 +81,7 @@ class Users extends Component
         }
 
         $this->resetValidation('delete');
-        $this->notice = 'User deleted.';
+        $this->toast()->success('User deleted.')->send();
     }
 
     public function render(): View
@@ -125,7 +93,8 @@ class Users extends Component
 
     private function resetEditor(): void
     {
-        $this->reset('showEditor', 'editingId', 'name', 'email', 'password', 'passwordConfirmation');
+        $this->reset('showEditor', 'editingId');
+        $this->form->reset();
         $this->resetValidation();
     }
 }

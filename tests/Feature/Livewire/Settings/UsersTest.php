@@ -47,8 +47,8 @@ it('rejects stale user actions when authentication is disabled', function (strin
     Config::set('auth.enabled', false);
 
     postJson(Livewire::getUpdateUri(), livewireUpdatePayload($page, [
-        'name' => 'New user', 'email' => 'new@example.com',
-        'password' => 'new-password', 'passwordConfirmation' => 'new-password',
+        'form.name' => 'New user', 'form.email' => 'new@example.com',
+        'form.password' => 'new-password', 'form.passwordConfirmation' => 'new-password',
     ], [['method' => $method, 'params' => $method === 'save' ? [] : [$target->id]]]), ['X-Livewire' => 'true'])
         ->assertRedirectToRoute('home');
 
@@ -75,10 +75,10 @@ it('creates an account with normalized details and a hashed password', function 
     actingAs(User::factory()->create());
 
     Livewire::test(Users::class)->call('create')
-        ->set('name', '  New user  ')->set('email', '  NEW@EXAMPLE.COM  ')
-        ->set('password', 'new-password')->set('passwordConfirmation', 'new-password')
-        ->call('save')->assertHasNoErrors()->assertSet('showEditor', false)
-        ->assertSet('password', '')->assertSet('passwordConfirmation', '');
+        ->set('form.name', '  New user  ')->set('form.email', '  NEW@EXAMPLE.COM  ')
+        ->set('form.password', 'new-password')->set('form.passwordConfirmation', 'new-password')
+        ->call('save')->assertHasNoErrors()->assertSet('showEditor', false)->assertDispatched('ts-ui:toast', title: 'User created.')
+        ->assertSet('form.password', '')->assertSet('form.passwordConfirmation', '');
 
     assertDatabaseHas('users', ['name' => 'New user', 'email' => 'new@example.com']);
     expect(Hash::check('new-password', User::query()->where('email', 'new@example.com')->firstOrFail()->password))->toBeTrue();
@@ -88,9 +88,9 @@ it('rejects invalid account details without saving', function (string $field, st
     actingAs(User::factory()->create(['email' => 'existing@example.com']));
 
     Livewire::test(Users::class)->call('create')
-        ->set('name', 'New user')->set('email', 'new@example.com')
-        ->set('password', 'new-password')->set('passwordConfirmation', $field === 'password' ? $value : 'new-password')
-        ->set($field, $value)->call('save')->assertHasErrors([$field === 'passwordConfirmation' ? 'password' : $field])
+        ->set('form.name', 'New user')->set('form.email', 'new@example.com')
+        ->set('form.password', 'new-password')->set('form.passwordConfirmation', $field === 'password' ? $value : 'new-password')
+        ->set('form.'.$field, $value)->call('save')->assertHasErrors(['form.'.($field === 'passwordConfirmation' ? 'password' : $field)])
         ->assertSee($error);
 
     assertDatabaseCount('users', 1);
@@ -113,8 +113,8 @@ it('edits an account without changing a blank password or its remembered login',
     Event::fake([PasswordReset::class]);
 
     Livewire::test(Users::class)->call('edit', $target->id)
-        ->assertSet('name', $target->name)->assertSet('email', $target->email)->assertSet('password', '')
-        ->set('name', 'Updated user')->call('save')->assertHasNoErrors();
+        ->assertSet('form.name', $target->name)->assertSet('form.email', $target->email)->assertSet('form.password', '')
+        ->set('form.name', 'Updated user')->call('save')->assertHasNoErrors();
 
     expect($target->refresh()->name)->toBe('Updated user');
     expect($target->password)->toBe($password);
@@ -126,7 +126,7 @@ it('normalizes changed email addresses and clears their verification', function 
     actingAs(User::factory()->create());
     $target = User::factory()->create();
 
-    Livewire::test(Users::class)->call('edit', $target->id)->set('email', ' CHANGED@EXAMPLE.COM ')
+    Livewire::test(Users::class)->call('edit', $target->id)->set('form.email', ' CHANGED@EXAMPLE.COM ')
         ->call('save')->assertHasNoErrors();
 
     expect($target->refresh()->email)->toBe('changed@example.com');
@@ -139,8 +139,8 @@ it('rejects another accounts email when editing', function (): void {
     $target = User::factory()->create();
     $email = $target->email;
 
-    Livewire::test(Users::class)->call('edit', $target->id)->set('email', $manager->email)
-        ->call('save')->assertHasErrors(['email']);
+    Livewire::test(Users::class)->call('edit', $target->id)->set('form.email', $manager->email)
+        ->call('save')->assertHasErrors(['form.email']);
 
     expect($target->refresh()->email)->toBe($email);
 });
@@ -154,8 +154,8 @@ it('changes a password and revokes the accounts existing session', function (): 
     Event::fake([PasswordReset::class]);
 
     Livewire::test(Users::class)->call('edit', $target->id)
-        ->set('password', 'replacement-password')->set('passwordConfirmation', 'replacement-password')
-        ->call('save')->assertHasNoErrors()->assertSet('password', '');
+        ->set('form.password', 'replacement-password')->set('form.passwordConfirmation', 'replacement-password')
+        ->call('save')->assertHasNoErrors()->assertSet('form.password', '');
 
     expect(Hash::check('replacement-password', $target->refresh()->password))->toBeTrue();
     expect($target->remember_token)->not->toBe($token);
@@ -170,7 +170,7 @@ it('requires signing in again after changing your own password', function (): vo
     Auth::login($user);
 
     Livewire::test(Users::class)->call('edit', $user->id)
-        ->set('password', 'replacement-password')->set('passwordConfirmation', 'replacement-password')
+        ->set('form.password', 'replacement-password')->set('form.passwordConfirmation', 'replacement-password')
         ->call('save')->assertHasNoErrors()->assertRedirectToRoute('login');
 
     expect(Hash::check('replacement-password', $user->refresh()->password))->toBeTrue();
@@ -205,7 +205,7 @@ it('clears unsaved credentials when starting another account', function (): void
     $target = User::factory()->create();
 
     Livewire::test(Users::class)->call('edit', $target->id)
-        ->set('password', 'unsaved-password')->set('passwordConfirmation', 'unsaved-password')
-        ->call('create')->assertSet('editingId', null)->assertSet('name', '')->assertSet('email', '')
-        ->assertSet('password', '')->assertSet('passwordConfirmation', '');
+        ->set('form.password', 'unsaved-password')->set('form.passwordConfirmation', 'unsaved-password')
+        ->call('create')->assertSet('editingId', null)->assertSet('form.name', '')->assertSet('form.email', '')
+        ->assertSet('form.password', '')->assertSet('form.passwordConfirmation', '');
 });

@@ -1,11 +1,7 @@
 <div class="space-y-8">
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-2">
-            <h1 class="text-3xl font-semibold tracking-tight">Queue</h1>
-            <p class="text-gray-500 dark:text-dark-400">Your media transcoding jobs and their progress.</p>
-        </div>
+    <x-page-header title="Queue" description="Your media transcoding jobs and their progress.">
         <x-badge text="Queue empty" color="gray" />
-    </div>
+    </x-page-header>
 
     <x-card>
         <section class="flex flex-col items-center gap-4 px-4 py-12 text-center" aria-labelledby="transcoding-queue-heading">

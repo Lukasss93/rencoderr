@@ -1,8 +1,5 @@
 <div class="space-y-8" wire:poll.5s>
-    <div class="space-y-2">
-        <h1 class="text-3xl font-semibold tracking-tight">Dashboard</h1>
-        <p class="text-gray-500 dark:text-dark-400">An overview of your media library and its storage.</p>
-    </div>
+    <x-page-header title="Dashboard" description="An overview of your media library and its storage." />
 
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         @foreach (['present' => 'Present files', 'missing' => 'Missing files', 'excluded' => 'Excluded files'] as $statusKey => $label)
@@ -55,9 +52,9 @@
         @endinteract
         @interact('column_status', $file)
             <x-badge :text="ucfirst($file->status->value)" :color="match ($file->status) {
-                \App\Scan\Enums\MediaFileStatus::Present => 'green',
-                \App\Scan\Enums\MediaFileStatus::Missing => 'red',
-                \App\Scan\Enums\MediaFileStatus::Excluded => 'gray',
+                \App\Library\Enums\MediaFileStatus::PRESENT => 'green',
+                \App\Library\Enums\MediaFileStatus::MISSING => 'red',
+                \App\Library\Enums\MediaFileStatus::EXCLUDED => 'gray',
             }" />
         @endinteract
         <x-slot:empty>

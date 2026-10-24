@@ -22,8 +22,8 @@ artisan route:cache
 artisan view:clear
 artisan view:cache
 artisan schedule:clear-cache
-artisan libraries:recover-scans
-artisan media:recover-probes
+artisan cache:forget encoding.detection
+artisan tasks:recover
 # Start dependents only after all bootstrap operations succeed.
 supervisorctl -c /opt/rencoderr/supervisord.conf start horizon octane scheduler
 touch /run/rencoderr/ready

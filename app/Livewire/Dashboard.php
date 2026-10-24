@@ -2,11 +2,11 @@
 
 namespace App\Livewire;
 
+use App\Library\Enums\MediaFileStatus;
+use App\Models\Builders\MediaFileBuilder;
 use App\Models\Library;
 use App\Models\MediaFile;
-use App\Scan\Enums\MediaFileStatus;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Number;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -50,7 +50,7 @@ class Dashboard extends Component
         return view('livewire.dashboard', [
             'files' => $this->inventory()->with('libraryPath.library')->orderBy('relative_path')->orderBy('id')->paginate(25),
             'counts' => $counts,
-            'presentSize' => Number::fileSize((int) ($totals[MediaFileStatus::Present->value]->bytes ?? 0), maxPrecision: 2),
+            'presentSize' => Number::fileSize((int) ($totals[MediaFileStatus::PRESENT->value]->bytes ?? 0), maxPrecision: 2),
             'libraryOptions' => [
                 ['label' => 'All libraries', 'value' => ''],
                 ...Library::query()->orderBy('name')->orderBy('id')->get()
@@ -63,25 +63,11 @@ class Dashboard extends Component
         ]);
     }
 
-    /**
-     * The files matching the filters. Filter values come from the address bar, so values that
-     * are not a library ID or a known status are ignored.
-     *
-     * @return Builder<MediaFile>
-     */
-    private function inventory(): Builder
+    private function inventory(): MediaFileBuilder
     {
-        $status = MediaFileStatus::tryFrom($this->status);
-
         return MediaFile::query()
-            ->when($this->search !== '', fn (Builder $query) => $query->whereRaw(
-                "relative_path like ? escape '!'",
-                ['%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $this->search).'%'],
-            ))
-            ->when(ctype_digit($this->library), fn (Builder $query) => $query->whereHas(
-                'libraryPath',
-                fn (Builder $paths) => $paths->where('library_id', (int) $this->library),
-            ))
-            ->when($status !== null, fn (Builder $query) => $query->where('status', $status));
+            ->search($this->search)
+            ->inLibrary(ctype_digit($this->library) ? (int) $this->library : null)
+            ->withStatus(MediaFileStatus::tryFrom($this->status));
     }
 }

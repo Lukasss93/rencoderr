@@ -1,5 +1,6 @@
 <?php
 
+use App\Tasks\Enums\WorkQueue;
 use Illuminate\Support\Str;
 
 return [
@@ -199,7 +200,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => ['default', 'probes'],
+            'queue' => array_column(WorkQueue::cases(), 'value'),
             'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => (int) env('HORIZON_WORKERS', 1),

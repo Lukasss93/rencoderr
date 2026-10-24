@@ -26,6 +26,4 @@ Route::middleware('auth')->group(function (): void {
     Route::livewire('/settings/libraries', Libraries::class)->name('settings.libraries');
     Route::livewire('/settings/users', Users::class)->middleware('auth.enabled')->name('settings.users');
     Route::livewire('/settings/workers', Workers::class)->name('settings.workers');
-    Route::redirect('/settings/system-health', '/settings/status')->name('settings.system-health');
-    Route::redirect('/libraries', '/settings/libraries')->name('libraries.index');
 });
