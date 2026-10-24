@@ -7,8 +7,6 @@ use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaFileFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\Scope;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -50,33 +48,6 @@ class MediaFile extends Model
     public function formattedSize(): string
     {
         return Number::fileSize($this->size_bytes, maxPrecision: 2);
-    }
-
-    /** @param Builder<MediaFile> $query */
-    #[Scope]
-    protected function search(Builder $query, string $text): void
-    {
-        if ($text !== '') {
-            $query->whereRaw("relative_path like ? escape '!'", ['%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%']);
-        }
-    }
-
-    /** @param Builder<MediaFile> $query */
-    #[Scope]
-    protected function inLibrary(Builder $query, ?int $libraryId): void
-    {
-        if ($libraryId !== null) {
-            $query->whereHas('libraryPath', fn (Builder $paths) => $paths->where('library_id', $libraryId));
-        }
-    }
-
-    /** @param Builder<MediaFile> $query */
-    #[Scope]
-    protected function withStatus(Builder $query, ?MediaFileStatus $status): void
-    {
-        if ($status !== null) {
-            $query->where('status', $status);
-        }
     }
 
     protected function casts(): array

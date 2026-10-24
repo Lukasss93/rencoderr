@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Library\MediaScanner;
 use App\Models\LibraryPath;
+use App\Tasks\Enums\TaskStatus;
 use App\Tasks\Enums\WorkQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -32,13 +33,23 @@ class ScanLibraryPath implements ShouldQueue
 
     public function handle(MediaScanner $scanner): void
     {
-        if (LibraryPath::claimScan($this->pathId, $this->token)) {
+        $claimed = LibraryPath::query()->scanRequest($this->pathId, $this->token)
+            ->where('scan_status', TaskStatus::QUEUED)
+            ->update(['scan_status' => TaskStatus::RUNNING, 'scan_started_at' => now()]);
+
+        if ($claimed === 1) {
             $scanner->scan($this->pathId, $this->token);
         }
     }
 
     public function failed(?Throwable $exception): void
     {
-        LibraryPath::failScan($this->pathId, $this->token, $exception?->getMessage() ?? 'The scan failed.');
+        LibraryPath::query()->scanRequest($this->pathId, $this->token)
+            ->whereIn('scan_status', [TaskStatus::QUEUED, TaskStatus::RUNNING])
+            ->update([
+                'scan_status' => TaskStatus::FAILED,
+                'scan_finished_at' => now(),
+                'scan_error' => $exception?->getMessage() ?? 'The scan failed.',
+            ]);
     }
 }

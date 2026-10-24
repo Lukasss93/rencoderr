@@ -26,13 +26,21 @@ class RunProbe
 
     public function handle(int $fileId, string $token): void
     {
-        $attempt = MediaProbe::claimAttempt($fileId, $token, ProbeMediaFile::MAX_ATTEMPTS, staleAfterSeconds: ProbeMediaFile::TIMEOUT_SECONDS + 30);
+        $attempt = (string) Str::uuid();
+        $claimed = MediaProbe::query()->forRequest($fileId, $token)
+            ->where('attempts', '<', ProbeMediaFile::MAX_ATTEMPTS)
+            ->claimable(ProbeMediaFile::TIMEOUT_SECONDS + 30)
+            ->update([
+                'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(),
+                'attempts' => DB::raw('attempts + 1'),
+            ]);
 
-        if ($attempt === null) {
+        if ($claimed === 0) {
             return;
         }
 
-        $current = fn (): Builder => MediaProbe::query()->forRequest($fileId, $token)->forAttempt($attempt);
+        $current = fn (): Builder => MediaProbe::query()->forRequest($fileId, $token)
+            ->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
 
         try {
             $file = MediaFile::query()->with('libraryPath')->find($fileId);

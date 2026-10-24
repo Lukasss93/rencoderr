@@ -66,31 +66,6 @@ class LibraryPath extends Model
             ]) === 1;
     }
 
-    public static function claimScan(int $pathId, string $token): bool
-    {
-        return self::query()->scanRequest($pathId, $token)->where('scan_status', TaskStatus::QUEUED)
-            ->update(['scan_status' => TaskStatus::RUNNING, 'scan_started_at' => now()]) === 1;
-    }
-
-    public static function completeScan(int $pathId, string $token): bool
-    {
-        return self::query()->runningScan($pathId, $token)->update([
-            'scan_status' => TaskStatus::COMPLETED,
-            'scan_finished_at' => now(),
-            'last_successful_scan_at' => now(),
-            'scan_error' => null,
-        ]) === 1;
-    }
-
-    public static function failScan(int $pathId, string $token, string $error): void
-    {
-        self::query()->scanRequest($pathId, $token)->whereIn('scan_status', [TaskStatus::QUEUED, TaskStatus::RUNNING])->update([
-            'scan_status' => TaskStatus::FAILED,
-            'scan_finished_at' => now(),
-            'scan_error' => $error,
-        ]);
-    }
-
     /** @param Builder<LibraryPath> $query */
     #[Scope]
     protected function scanRequest(Builder $query, int $pathId, string $token): void

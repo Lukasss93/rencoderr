@@ -8,13 +8,10 @@ use Database\Factories\MediaProbeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * A request token identifies one probe request and an attempt token one run of it, so a worker
@@ -56,58 +53,11 @@ class MediaProbe extends Model
         ];
     }
 
-    /**
-     * @param  Collection<int, MediaFile>  $files
-     * @param  list<int>  $restoredIds
-     */
-    public static function resetForChangedFiles(Collection $files, array $restoredIds): void
-    {
-        $probes = self::query()->whereIn('media_file_id', $files->modelKeys())->get()->keyBy('media_file_id');
-        $rows = [];
-
-        foreach ($files as $file) {
-            $probe = $probes->get($file->id);
-
-            if ($probe !== null && $probe->matches($file) && ! in_array($file->id, $restoredIds, true)) {
-                continue;
-            }
-
-            $rows[] = [
-                'media_file_id' => $file->id,
-                'source_size_bytes' => $file->size_bytes,
-                'source_modified_at' => $file->filesystem_modified_at->toDateTimeString(),
-                ...self::pendingAttributes(),
-            ];
-        }
-
-        if ($rows !== []) {
-            self::query()->upsert($rows, ['media_file_id'], ['source_size_bytes', 'source_modified_at', ...array_keys(self::pendingAttributes())]);
-        }
-    }
-
-    public static function claimAttempt(int $fileId, string $token, int $maxAttempts, int $staleAfterSeconds): ?string
-    {
-        $attempt = (string) Str::uuid();
-        $claimed = self::query()->forRequest($fileId, $token)->where('attempts', '<', $maxAttempts)->claimable($staleAfterSeconds)->update([
-            'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(),
-            'attempts' => DB::raw('attempts + 1'),
-        ]);
-
-        return $claimed === 0 ? null : $attempt;
-    }
-
     /** @param Builder<MediaProbe> $query */
     #[Scope]
     protected function forRequest(Builder $query, int $fileId, string $token): void
     {
         $query->where('media_file_id', $fileId)->where('request_token', $token);
-    }
-
-    /** @param Builder<MediaProbe> $query */
-    #[Scope]
-    protected function forAttempt(Builder $query, string $attempt): void
-    {
-        $query->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
     }
 
     /** @param Builder<MediaProbe> $query */

@@ -7,6 +7,7 @@ use App\Library\Events\LibraryPathScanned;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
 use App\Models\MediaProbe;
+use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
@@ -90,7 +91,14 @@ class MediaScanner
 
         $this->reconcile($pathId, $token, $patterns);
 
-        if (LibraryPath::completeScan($pathId, $token)) {
+        $completed = LibraryPath::query()->runningScan($pathId, $token)->update([
+            'scan_status' => TaskStatus::COMPLETED,
+            'scan_finished_at' => now(),
+            'last_successful_scan_at' => now(),
+            'scan_error' => null,
+        ]);
+
+        if ($completed === 1) {
             LibraryPathScanned::dispatch($pathId, $token);
         }
     }
@@ -144,10 +152,39 @@ class MediaScanner
                 'relative_path', 'extension', 'size_bytes', 'filesystem_modified_at',
                 'last_seen_at', 'last_seen_scan_token', 'status',
             ]);
-            MediaProbe::resetForChangedFiles(MediaFile::query()->where('library_path_id', $pathId)->whereIn('path_hash', $hashes)->get(), $restoredIds);
+            $this->resetChangedProbes(MediaFile::query()->where('library_path_id', $pathId)->whereIn('path_hash', $hashes)->get(), $restoredIds);
 
             return true;
         });
+    }
+
+    /**
+     * @param  Collection<int, MediaFile>  $files
+     * @param  list<int>  $restoredIds
+     */
+    private function resetChangedProbes(Collection $files, array $restoredIds): void
+    {
+        $probes = MediaProbe::query()->whereIn('media_file_id', $files->modelKeys())->get()->keyBy('media_file_id');
+        $rows = [];
+
+        foreach ($files as $file) {
+            $probe = $probes->get($file->id);
+
+            if ($probe !== null && $probe->matches($file) && ! in_array($file->id, $restoredIds, true)) {
+                continue;
+            }
+
+            $rows[] = [
+                'media_file_id' => $file->id,
+                'source_size_bytes' => $file->size_bytes,
+                'source_modified_at' => $file->filesystem_modified_at->toDateTimeString(),
+                ...MediaProbe::pendingAttributes(),
+            ];
+        }
+
+        if ($rows !== []) {
+            MediaProbe::query()->upsert($rows, ['media_file_id'], ['source_size_bytes', 'source_modified_at', ...array_keys(MediaProbe::pendingAttributes())]);
+        }
     }
 
     /** @param list<string> $patterns */

@@ -66,9 +66,17 @@ class Dashboard extends Component
     /** @return Builder<MediaFile> */
     private function inventory(): Builder
     {
+        $status = MediaFileStatus::tryFrom($this->status);
+
         return MediaFile::query()
-            ->search($this->search)
-            ->inLibrary(ctype_digit($this->library) ? (int) $this->library : null)
-            ->withStatus(MediaFileStatus::tryFrom($this->status));
+            ->when($this->search !== '', fn (Builder $query) => $query->whereRaw(
+                "relative_path like ? escape '!'",
+                ['%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $this->search).'%'],
+            ))
+            ->when(ctype_digit($this->library), fn (Builder $query) => $query->whereHas(
+                'libraryPath',
+                fn (Builder $paths) => $paths->where('library_id', (int) $this->library),
+            ))
+            ->when($status !== null, fn (Builder $query) => $query->where('status', $status));
     }
 }
