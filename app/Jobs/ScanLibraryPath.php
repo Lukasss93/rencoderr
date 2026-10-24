@@ -32,13 +32,13 @@ class ScanLibraryPath implements ShouldQueue
 
     public function handle(MediaScanner $scanner): void
     {
-        if (LibraryPath::query()->scanRequest($this->pathId, $this->token)->claimScan()) {
+        if (LibraryPath::claimScan($this->pathId, $this->token)) {
             $scanner->scan($this->pathId, $this->token);
         }
     }
 
     public function failed(?Throwable $exception): void
     {
-        LibraryPath::query()->scanRequest($this->pathId, $this->token)->failScan($exception?->getMessage() ?? 'The scan failed.');
+        LibraryPath::failScan($this->pathId, $this->token, $exception?->getMessage() ?? 'The scan failed.');
     }
 }

@@ -44,7 +44,7 @@ vendor/bin/pint --test
   - `Tasks`: the status and queue names shared by tracked background work.
   - `Workers`: the Horizon worker limit.
   - `Users`: account management.
-- Keep models in `app/Models` with their query filters and state changes in custom builders in `app/Models/Builders`, jobs in `app/Jobs`, and Livewire form objects in `app/Livewire/Forms`.
+- Keep models in `app/Models` with their query filters as `#[Scope]` local scopes and their state changes as model methods, jobs in `app/Jobs`, and Livewire form objects in `app/Livewire/Forms`.
 - Track background work with `TaskStatus` and token-guarded state changes, run it on a `WorkQueue`, and requeue interrupted work in the `tasks:recover` command.
 - Let domains react to each other through events, such as `LibraryPathScanned`, instead of calling each other directly.
 - Write enum case names in UPPERCASE.

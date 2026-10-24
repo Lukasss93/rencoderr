@@ -3,10 +3,10 @@
 namespace App\Livewire;
 
 use App\Library\Enums\MediaFileStatus;
-use App\Models\Builders\MediaFileBuilder;
 use App\Models\Library;
 use App\Models\MediaFile;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Number;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -63,7 +63,8 @@ class Dashboard extends Component
         ]);
     }
 
-    private function inventory(): MediaFileBuilder
+    /** @return Builder<MediaFile> */
+    private function inventory(): Builder
     {
         return MediaFile::query()
             ->search($this->search)

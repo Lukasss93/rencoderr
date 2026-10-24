@@ -5,7 +5,6 @@ namespace App\Probe\Actions;
 use App\Jobs\ProbeMediaFile;
 use App\Library\Enums\MediaFileStatus;
 use App\Library\MediaFilePath;
-use App\Models\Builders\MediaProbeBuilder;
 use App\Models\MediaFile;
 use App\Models\MediaProbe;
 use App\Probe\Exceptions\MalformedProbeResult;
@@ -15,6 +14,7 @@ use App\Probe\ProbeResult;
 use App\Tasks\Enums\TaskStatus;
 use Closure;
 use FFMpeg\Exception\ExecutableNotFoundException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -26,14 +26,13 @@ class RunProbe
 
     public function handle(int $fileId, string $token): void
     {
-        $attempt = MediaProbe::query()->forRequest($fileId, $token)
-            ->claim(ProbeMediaFile::MAX_ATTEMPTS, staleAfterSeconds: ProbeMediaFile::TIMEOUT_SECONDS + 30);
+        $attempt = MediaProbe::claimAttempt($fileId, $token, ProbeMediaFile::MAX_ATTEMPTS, staleAfterSeconds: ProbeMediaFile::TIMEOUT_SECONDS + 30);
 
         if ($attempt === null) {
             return;
         }
 
-        $current = fn (): MediaProbeBuilder => MediaProbe::query()->forRequest($fileId, $token)->forAttempt($attempt);
+        $current = fn (): Builder => MediaProbe::query()->forRequest($fileId, $token)->forAttempt($attempt);
 
         try {
             $file = MediaFile::query()->with('libraryPath')->find($fileId);
@@ -44,7 +43,7 @@ class RunProbe
             }
 
             if (! $this->isCurrent($file, $probe)) {
-                $current()->resetToPending();
+                $current()->update(MediaProbe::pendingAttributes());
 
                 return;
             }
@@ -52,7 +51,7 @@ class RunProbe
             $path = $this->paths->resolve($file);
 
             if (! $this->paths->isUnchanged($file, $path)) {
-                $current()->resetToPending();
+                $current()->update(MediaProbe::pendingAttributes());
 
                 return;
             }
@@ -61,7 +60,7 @@ class RunProbe
             $result = app(MediaProber::class)->probe($path);
 
             if (! $this->paths->isUnchanged($file, $path)) {
-                $current()->resetToPending();
+                $current()->update(MediaProbe::pendingAttributes());
 
                 return;
             }
@@ -83,7 +82,7 @@ class RunProbe
             }
 
             if (! $this->isCurrent($file, $probe)) {
-                $current()->resetToPending();
+                $current()->update(MediaProbe::pendingAttributes());
 
                 return;
             }

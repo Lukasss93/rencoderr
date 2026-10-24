@@ -90,7 +90,7 @@ class MediaScanner
 
         $this->reconcile($pathId, $token, $patterns);
 
-        if (LibraryPath::query()->scanRequest($pathId, $token)->completeScan()) {
+        if (LibraryPath::completeScan($pathId, $token)) {
             LibraryPathScanned::dispatch($pathId, $token);
         }
     }
@@ -174,7 +174,7 @@ class MediaScanner
                         }
                     }
 
-                    MediaProbe::query()->whereIn('media_file_id', $files->modelKeys())->resetToPending();
+                    MediaProbe::query()->whereIn('media_file_id', $files->modelKeys())->update(MediaProbe::pendingAttributes());
 
                     MediaFile::query()->where('library_path_id', $pathId)->whereIn('id', $missing)
                         ->update(['status' => MediaFileStatus::MISSING]);

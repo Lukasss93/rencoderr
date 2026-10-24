@@ -3,12 +3,12 @@
 namespace App\Models;
 
 use App\Library\Enums\MediaFileStatus;
-use App\Models\Builders\MediaFileBuilder;
 use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaFileFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -22,7 +22,6 @@ use Illuminate\Support\Number;
  * @property CarbonImmutable $last_seen_at
  */
 #[Fillable(['library_path_id', 'relative_path', 'path_hash', 'extension', 'size_bytes', 'filesystem_modified_at', 'first_seen_at', 'last_seen_at', 'last_seen_scan_token', 'status'])]
-#[UseEloquentBuilder(MediaFileBuilder::class)]
 class MediaFile extends Model
 {
     /** @use HasFactory<MediaFileFactory> */
@@ -51,6 +50,33 @@ class MediaFile extends Model
     public function formattedSize(): string
     {
         return Number::fileSize($this->size_bytes, maxPrecision: 2);
+    }
+
+    /** @param Builder<MediaFile> $query */
+    #[Scope]
+    protected function search(Builder $query, string $text): void
+    {
+        if ($text !== '') {
+            $query->whereRaw("relative_path like ? escape '!'", ['%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%']);
+        }
+    }
+
+    /** @param Builder<MediaFile> $query */
+    #[Scope]
+    protected function inLibrary(Builder $query, ?int $libraryId): void
+    {
+        if ($libraryId !== null) {
+            $query->whereHas('libraryPath', fn (Builder $paths) => $paths->where('library_id', $libraryId));
+        }
+    }
+
+    /** @param Builder<MediaFile> $query */
+    #[Scope]
+    protected function withStatus(Builder $query, ?MediaFileStatus $status): void
+    {
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
     }
 
     protected function casts(): array

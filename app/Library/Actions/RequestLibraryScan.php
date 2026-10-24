@@ -77,13 +77,7 @@ class RequestLibraryScan
             ? $path->scan_token
             : (string) Str::uuid();
 
-        // Only update the folder if no other request or job has changed it since it was read.
-        $updated = LibraryPath::query()->whereKey($path->id)
-            ->where('scan_status', $path->scan_status)
-            ->where('scan_token', $path->scan_token)
-            ->queueScan($token);
-
-        if ($updated === 0) {
+        if (! $path->queueScan($token)) {
             return false;
         }
 

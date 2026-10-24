@@ -2,24 +2,28 @@
 
 namespace App\Models;
 
-use App\Models\Builders\MediaProbeBuilder;
 use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaProbeFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Attributes\UseEloquentBuilder;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
+ * A request token identifies one probe request and an attempt token one run of it, so a worker
+ * that lost its claim cannot overwrite the work of the one that replaced it.
+ *
  * @property TaskStatus $status
  * @property CarbonImmutable $source_modified_at
  */
 #[Fillable(['media_file_id', 'status', 'request_token', 'attempt_token', 'source_size_bytes', 'source_modified_at', 'attempts', 'requested_at', 'started_at', 'finished_at', 'probed_at', 'error', 'format', 'duration_seconds', 'bit_rate', 'metadata'])]
-#[UseEloquentBuilder(MediaProbeBuilder::class)]
 class MediaProbe extends Model
 {
     /** @use HasFactory<MediaProbeFactory> */
@@ -79,6 +83,42 @@ class MediaProbe extends Model
         if ($rows !== []) {
             self::query()->upsert($rows, ['media_file_id'], ['source_size_bytes', 'source_modified_at', ...array_keys(self::pendingAttributes())]);
         }
+    }
+
+    public static function claimAttempt(int $fileId, string $token, int $maxAttempts, int $staleAfterSeconds): ?string
+    {
+        $attempt = (string) Str::uuid();
+        $claimed = self::query()->forRequest($fileId, $token)->where('attempts', '<', $maxAttempts)->claimable($staleAfterSeconds)->update([
+            'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(),
+            'attempts' => DB::raw('attempts + 1'),
+        ]);
+
+        return $claimed === 0 ? null : $attempt;
+    }
+
+    /** @param Builder<MediaProbe> $query */
+    #[Scope]
+    protected function forRequest(Builder $query, int $fileId, string $token): void
+    {
+        $query->where('media_file_id', $fileId)->where('request_token', $token);
+    }
+
+    /** @param Builder<MediaProbe> $query */
+    #[Scope]
+    protected function forAttempt(Builder $query, string $attempt): void
+    {
+        $query->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
+    }
+
+    /** @param Builder<MediaProbe> $query */
+    #[Scope]
+    protected function claimable(Builder $query, int $staleAfterSeconds): void
+    {
+        $query->where(function (Builder $query) use ($staleAfterSeconds): void {
+            $query->where('status', TaskStatus::QUEUED)->orWhere(function (Builder $query) use ($staleAfterSeconds): void {
+                $query->where('status', TaskStatus::RUNNING)->where('started_at', '<=', now()->subSeconds($staleAfterSeconds));
+            });
+        });
     }
 
     protected function casts(): array

@@ -21,7 +21,7 @@ class RecoverScans
 
         foreach (LibraryPath::query()->whereIn('scan_status', [TaskStatus::QUEUED, TaskStatus::RUNNING])->lazyById() as $path) {
             $token = (string) Str::uuid();
-            LibraryPath::query()->whereKey($path->id)->queueScan($token);
+            $path->queueScan($token);
             $this->bus->dispatch(new ScanLibraryPath($path->id, $token));
             $recovered++;
         }
