@@ -5,11 +5,13 @@ namespace App\Providers;
 use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EnsureAuthenticationEnabled;
 use App\Library\Events\LibraryPathScanned;
+use App\Models\Library;
 use App\Probe\Listeners\QueueProbesAfterScan;
 use App\Probe\MediaProber;
 use FFMpeg\Driver\FFMpegDriver;
 use FFMpeg\Driver\FFProbeDriver;
 use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
@@ -25,6 +27,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Relation::morphMap(['library' => Library::class]);
+
         if ($this->app->runningInConsole()) {
             DevCommands::artisan('schedule:work', 'scheduler');
         }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Library;
 use App\Models\User;
 use Illuminate\Support\Facades\Config;
 
@@ -13,6 +14,17 @@ function navigationDocument(string $html): DOMXPath
 
     return new DOMXPath($document);
 }
+
+it('links library media settings and keeps the libraries sidebar item active', function (): void {
+    $library = Library::factory()->create();
+    actingAs(User::factory()->create())->get(route('settings.libraries'))->assertOk()
+        ->assertSeeHtml('href="'.route('settings.libraries.media', $library).'"');
+    $response = get(route('settings.libraries.media', $library))->assertOk();
+    $navigation = navigationDocument((string) $response->getContent());
+
+    expect($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[@aria-current="page"]/@href)'))
+        ->toBe(route('settings.libraries'));
+});
 
 it('provides dashboard queue and settings navigation with icons', function (): void {
     $response = actingAs(User::factory()->create())->get(route('home'))->assertOk();
@@ -38,6 +50,7 @@ it('marks the current navigation section', function (string $page, string $link)
     'dashboard' => ['home', 'home'],
     'queue' => ['queue.index', 'queue.index'],
     'library settings' => ['settings.libraries', 'settings.index'],
+    'media settings' => ['settings.media', 'settings.index'],
     'user settings' => ['settings.users', 'settings.index'],
 ]);
 
@@ -45,12 +58,14 @@ it('places library settings inside the settings sidebar', function (): void {
     $response = actingAs(User::factory()->create())->get(route('settings.libraries'))->assertOk()->assertSee('Add your first library');
     $navigation = navigationDocument((string) $response->getContent());
 
-    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(4.0)
+    expect($navigation->evaluate('count(//aside//nav[@aria-label="Settings navigation"]/a)'))->toBe(5.0)
         ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[2])'))->toBe('Libraries')
         ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@href)'))->toBe(route('settings.libraries'))
         ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[2]/@aria-current)'))->toBe('page')
-        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[4])'))->toBe('Workers')
-        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[4]/@href)'))->toBe(route('settings.workers'))
+        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[3])'))->toBe('Media')
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[3]/@href)'))->toBe(route('settings.media'))
+        ->and($navigation->evaluate('normalize-space(//nav[@aria-label="Settings navigation"]/a[5])'))->toBe('Workers')
+        ->and($navigation->evaluate('string(//nav[@aria-label="Settings navigation"]/a[5]/@href)'))->toBe(route('settings.workers'))
         ->and($navigation->evaluate('count(//nav[@aria-label="Settings navigation"]/a[2]/@*[name()="wire:navigate"])'))->toBe(1.0);
 });
 
@@ -109,4 +124,4 @@ it('opens settings on status', function (): void {
 
 it('protects queue and settings pages behind the existing authentication', function (string $page): void {
     get(route($page))->assertRedirectToRoute('login');
-})->with(['queue.index', 'settings.index', 'settings.libraries', 'settings.status']);
+})->with(['queue.index', 'settings.index', 'settings.libraries', 'settings.media', 'settings.status']);

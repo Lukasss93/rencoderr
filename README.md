@@ -4,7 +4,7 @@ A self-hosted media library manager focused on saving storage while preserving v
 
 Rencoderr's goal is to scan your media libraries and re-encode files using more efficient codecs, such as converting H.264 to AV1, to reduce file sizes without a perceptible loss of quality.
 
-The project is in active development. Library management, scheduled scans, media inventory, and hardware encoder checks are available. Re-encoding is planned; the transcoding queue is currently a placeholder.
+The project is in active development. Library management, scheduled scans, media inventory, hardware encoder checks, and media settings with library overrides are available. Re-encoding is planned; the transcoding queue is currently a placeholder.
 
 ## Docker Compose
 
@@ -66,6 +66,43 @@ Open `http://localhost:8000`, sign in, and add a library under **Settings → Li
 - `/media` exposes your media files to the application. You can mount additional directories if needed.
 
 A `.env` file is not required for this example; configure the environment variables and volume paths directly in `compose.yaml`.
+
+### Media settings
+
+Open **Settings → Media** to save global media preferences. In **Settings → Libraries**, choose **Media settings** on a library to override individual fields. New and existing libraries inherit every global setting until an override is saved.
+
+Global preferences and library overrides are stored as individual rows in the `settings` table, with keys such as `media.video_codec`, `media.hdr_mode`, and `media.audio_languages`. Global rows have no owner; library overrides use the polymorphic `settingable` relation (`settingable_type = library`, `settingable_id = library ID`). Access them through `$library->settings()` and their owner through `$setting->settingable`. Each row contains one setting value; list preferences retain their arrays. Inherited fields have no library row, and resetting an override deletes its row. Deleting a library also removes its settings.
+
+The **H.265 — High quality** and **AV1 — High quality** presets set the video codec, high quality, and balanced encoding speed. **Apply preset** changes the form; **Save media settings** persists it. Presets leave HDR, audio, subtitles, and safeguards unchanged. On a library page, applying a preset overrides exactly those three video fields. You can edit them afterward.
+
+| Preference | Default | Available choices |
+| --- | --- | --- |
+| Video codec | H.265 | H.265, AV1 |
+| Video quality | High | High, balanced, smaller files |
+| Encoding speed | Balanced | Fast, balanced, slow |
+| HDR handling | Preserve | Preserve, convert to SDR, skip HDR files |
+| Audio codec / channels | Copy original / preserve | Copy, AAC, Opus / preserve, stereo |
+| Converted audio bitrate | 64 kbps per output channel | 32–256 kbps per channel |
+| Lossless audio | Preserve | Preserve or allow conversion |
+| Audio / subtitle languages | All | Optional three-letter language tags |
+| Subtitles / forced subtitles | Retain / preserve | Enable or disable independently |
+| Skip files using these video codecs | H.265, AV1 | Any selection of H.264, H.265, AV1 |
+| Smaller output / minimum savings | Required / 5% | Enable or disable / 0–99% |
+| Video quality verification / minimum VMAF | Enabled / 95 | Enable or disable / 0–100 |
+
+HDR means high dynamic range; SDR means standard dynamic range. VMAF (Video Multi-Method Assessment Fusion) measures perceptual similarity, not mathematical losslessness. Quality and speed are preferences; their encoder-specific implementation belongs to the transcoding workflow.
+
+Changes to global settings apply to fields a library inherits. An explicit override stays independent even if its value equals the global value. Disable **Override global setting** for one field, or choose **Use global settings for all**, then save to restore inheritance. Empty language lists explicitly mean all languages; empty skip-codec lists mean no codec-based skipping. Language tags are normalized to lowercase and deduplicated; examples include `eng`, `ita`, and `und` for unknown languages.
+
+The preferences define these processing policies:
+
+- Resolution and frame rate remain unchanged. HDR preservation must skip unsupported files instead of silently stripping HDR.
+- Copied audio retains its codec, bitrate, and channels. Preserving lossless audio takes precedence over conversion and channel settings for those tracks. A language filter that would remove every existing audio track must skip the file.
+- Forced subtitles are kept regardless of the language filter when subtitle retention and forced-subtitle preservation are both enabled. Disabling subtitle retention removes all subtitles.
+- Skip-codec selections skip the whole file. To convert existing H.265 files to AV1, remove H.265 from the skip list; applying the AV1 preset does not change that list.
+- Minimum savings applies only when smaller output is required; 0% still requires strictly smaller output. Minimum VMAF applies only when quality verification is enabled. Values remain saved while their related option is disabled.
+
+These settings currently save configuration only. They do not start transcoding, perform quality checks, or replace files. Hardware acceleration and worker limits remain global, separate settings.
 
 ### Queue workers
 

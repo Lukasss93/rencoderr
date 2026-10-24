@@ -22,4 +22,14 @@ class LibraryFactory extends Factory
     {
         return $this->state(fn (): array => ['automatic_scanning' => false]);
     }
+
+    /** @param array<string, mixed> $settings */
+    public function withSettings(array $settings): static
+    {
+        return $this->afterCreating(function (Library $library) use ($settings): void {
+            foreach ($settings as $key => $value) {
+                $library->settings()->create(['key' => $key, 'value' => $value]);
+            }
+        });
+    }
 }
