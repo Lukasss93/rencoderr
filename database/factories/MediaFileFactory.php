@@ -2,15 +2,14 @@
 
 namespace Database\Factories;
 
+use App\Library\Enums\MediaFileStatus;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
-use App\Scan\Enums\MediaFileStatus;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /** @extends Factory<MediaFile> */
 class MediaFileFactory extends Factory
 {
-    /** @return array<string, mixed> */
     public function definition(): array
     {
         $path = fake()->uuid().'.mkv';
@@ -24,7 +23,7 @@ class MediaFileFactory extends Factory
             'filesystem_modified_at' => now(),
             'first_seen_at' => now(),
             'last_seen_at' => now(),
-            'status' => MediaFileStatus::Present,
+            'status' => MediaFileStatus::PRESENT,
         ];
     }
 
@@ -39,11 +38,11 @@ class MediaFileFactory extends Factory
 
     public function missing(): static
     {
-        return $this->state(fn (): array => ['status' => MediaFileStatus::Missing]);
+        return $this->state(fn (): array => ['status' => MediaFileStatus::MISSING]);
     }
 
     public function excluded(): static
     {
-        return $this->state(fn (): array => ['status' => MediaFileStatus::Excluded]);
+        return $this->state(fn (): array => ['status' => MediaFileStatus::EXCLUDED]);
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+use App\Encoding\Data\Detection;
+use App\Encoding\EncoderDetector;
 use App\Livewire\Settings\Status;
 use App\Models\User;
 use Illuminate\Process\PendingProcess;
@@ -129,7 +131,8 @@ it('replaces the previous detection and clears hardware verification on refresh'
     $component = Livewire::test(Status::class)->call('testEncoder', 'h264_nvenc')->assertSee('Verified');
 
     $component->call('refreshDetection')->assertSee('flac')->assertDontSee('h264_nvenc')
-        ->assertDontSee('Verified')->assertSet('checks', []);
+        ->assertDontSee('Verified');
+    expect(app(EncoderDetector::class)->current()->checks)->toBe([]);
     Process::assertRanTimes(fn (PendingProcess $process): bool => true, 16);
 });
 
@@ -142,9 +145,10 @@ it('verifies hardware only after a successful one frame encode', function (strin
         '*-c:v*' => "frame=1\nprogress=end",
     ]);
 
-    Livewire::test(Status::class)->call('testEncoder', $encoder)
-        ->assertSet('checks.'.$encoder.'.successful', true)->assertSee('Verified')
-        ->assertSet('report.acceleration.backends.'.$backend.'.available', true);
+    Livewire::test(Status::class)->call('testEncoder', $encoder)->assertSee('Verified');
+    $detection = app(EncoderDetector::class)->current();
+    expect($detection->checks[$encoder]->successful)->toBeTrue()
+        ->and($detection->isBackendAvailable($backend))->toBeTrue();
 
     Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
         && in_array('color=c=black:s=1280x720:r=1', $process->command, true)
@@ -152,12 +156,12 @@ it('verifies hardware only after a successful one frame encode', function (strin
             '-vf', $filter, '-frames:v', '1', '-an', '-c:v', $encoder, '-progress', 'pipe:1', '-f', 'null', '-',
         ]
         && ($device === null || array_slice($process->command, 5, 2) === ['-init_hw_device', $device])
-        && ($filter !== 'format=nv12,hwupload' || array_slice($process->command, 7, 2) === ['-filter_hw_device', 'health'])
+        && ($filter !== 'format=nv12,hwupload' || array_slice($process->command, 7, 2) === ['-filter_hw_device', 'hw'])
         && $process->timeout === 10);
 })->with([
     'NVIDIA' => ['h264_nvenc', 'format=nv12', null, 'nvenc'],
-    'VAAPI' => ['hevc_vaapi', 'format=nv12,hwupload', 'vaapi=health', 'vaapi'],
-    'Quick Sync' => ['av1_qsv', 'format=nv12', 'qsv=health:hw', 'qsv'],
+    'VAAPI' => ['hevc_vaapi', 'format=nv12,hwupload', 'vaapi=hw', 'vaapi'],
+    'Quick Sync' => ['av1_qsv', 'format=nv12', 'qsv=hw:hw', 'qsv'],
 ]);
 
 it('does not verify an encoder when the test fails or produces no frames', function (string $output, int $exitCode): void {
@@ -169,8 +173,8 @@ it('does not verify an encoder when the test fails or produces no frames', funct
         '*-c:v*' => Process::result(output: $output, errorOutput: 'Device unavailable', exitCode: $exitCode),
     ]);
 
-    Livewire::test(Status::class)->call('testEncoder', 'h264_nvenc')
-        ->assertSet('checks.h264_nvenc.successful', false)->assertSee('Test failed')->assertDontSee('Verified');
+    Livewire::test(Status::class)->call('testEncoder', 'h264_nvenc')->assertSee('Test failed')->assertDontSee('Verified');
+    expect(app(EncoderDetector::class)->current()->checks['h264_nvenc']->successful)->toBeFalse();
     Process::assertRanTimes(fn (PendingProcess $process): bool => true, 9);
 })->with(['failed' => ['', 1], 'no frame' => ['frame=0', 0]]);
 
@@ -268,7 +272,7 @@ it('only counts and groups hardware encoders with an available backend', functio
         ->assertDontSee('Not tested');
 
     $component->call('testEncoder', 'av1_qsv')
-        ->assertSet('report.acceleration.backends.qsv.available', true)
+        ->assertViewHas('detection', fn (Detection $detection): bool => $detection->isBackendAvailable('qsv'))
         ->assertViewHas('videoCount', 1)
         ->assertViewHas('groups', fn (array $groups): bool => $groups['Video']['Hardware'] === []
             && array_column($groups['Video']['Supported']['av1'], 'name') === ['av1_qsv']);

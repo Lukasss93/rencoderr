@@ -7,7 +7,7 @@ use Alchemy\BinaryDriver\ProcessBuilderFactoryInterface;
 use Alchemy\BinaryDriver\ProcessRunnerInterface;
 use App\Jobs\ScanLibraryPath;
 use App\Models\LibraryPath;
-use App\Scan\Enums\ScanStatus;
+use App\Tasks\Enums\TaskStatus;
 use FFMpeg\Driver\FFMpegDriver;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Process\Exceptions\ProcessTimedOutException;
@@ -129,7 +129,7 @@ function mediaDirectory(array $files = []): string
 function scanMediaPath(LibraryPath $path, array $patterns = []): void
 {
     $token = (string) Str::uuid();
-    $path->refresh()->update(['scan_status' => ScanStatus::Queued, 'scan_token' => $token, 'scan_requested_at' => now()]);
+    $path->refresh()->update(['scan_status' => TaskStatus::QUEUED, 'scan_token' => $token, 'scan_requested_at' => now()]);
     $path->library()->firstOrFail()->update(['exclusion_patterns' => $patterns]);
     ScanLibraryPath::dispatchSync($path->id, $token);
 }

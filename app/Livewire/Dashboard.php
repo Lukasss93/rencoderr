@@ -2,9 +2,9 @@
 
 namespace App\Livewire;
 
+use App\Library\Enums\MediaFileStatus;
 use App\Models\Library;
 use App\Models\MediaFile;
-use App\Scan\Enums\MediaFileStatus;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Number;
@@ -50,7 +50,7 @@ class Dashboard extends Component
         return view('livewire.dashboard', [
             'files' => $this->inventory()->with('libraryPath.library')->orderBy('relative_path')->orderBy('id')->paginate(25),
             'counts' => $counts,
-            'presentSize' => Number::fileSize((int) ($totals[MediaFileStatus::Present->value]->bytes ?? 0), maxPrecision: 2),
+            'presentSize' => Number::fileSize((int) ($totals[MediaFileStatus::PRESENT->value]->bytes ?? 0), maxPrecision: 2),
             'libraryOptions' => [
                 ['label' => 'All libraries', 'value' => ''],
                 ...Library::query()->orderBy('name')->orderBy('id')->get()
@@ -63,12 +63,7 @@ class Dashboard extends Component
         ]);
     }
 
-    /**
-     * The files matching the filters. Filter values come from the address bar, so values that
-     * are not a library ID or a known status are ignored.
-     *
-     * @return Builder<MediaFile>
-     */
+    /** @return Builder<MediaFile> */
     private function inventory(): Builder
     {
         $status = MediaFileStatus::tryFrom($this->status);

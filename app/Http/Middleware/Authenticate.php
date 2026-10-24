@@ -17,11 +17,6 @@ class Authenticate implements AuthenticatesRequests
         private readonly AuthenticateSession $authenticateSession,
     ) {}
 
-    /**
-     * Handle an incoming request.
-     *
-     * @param  Closure(Request): (Response)  $next
-     */
     public function handle(Request $request, Closure $next): Response
     {
         if (! Config::boolean('auth.enabled')) {

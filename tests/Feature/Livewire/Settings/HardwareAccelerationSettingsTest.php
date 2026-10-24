@@ -1,9 +1,10 @@
 <?php
 
+use App\Encoding\AccelerationPreference;
+use App\Ffmpeg\Enums\HardwareBackend;
 use App\Livewire\Settings\Status;
 use App\Models\Setting;
 use App\Models\User;
-use App\Settings\ApplicationSettings;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Process;
 use Livewire\Livewire;
@@ -31,12 +32,12 @@ it('saves the chosen backend for all users and restores it on another visit', fu
 
     Livewire::test(Status::class)->assertSet('preferredAcceleration', 'auto')
         ->set('preferredAcceleration', 'qsv')->call('saveHardwareAcceleration')
-        ->assertHasNoErrors()->assertSee('Hardware acceleration preference saved.');
+        ->assertHasNoErrors()->assertDispatched('ts-ui:toast', title: 'Hardware acceleration preference saved.');
 
     actingAs(User::factory()->create());
     Livewire::test(Status::class)->assertSet('preferredAcceleration', 'qsv')
-        ->assertViewHas('effectiveAcceleration', 'qsv');
-    expect(app(ApplicationSettings::class)->hardwareAcceleration())->toBe('qsv')
+        ->assertViewHas('effectiveAcceleration', HardwareBackend::QSV);
+    expect(app(AccelerationPreference::class)->saved())->toBe('qsv')
         ->and(Setting::query()->count())->toBe(1);
 });
 
@@ -47,7 +48,7 @@ it('shows a warning for a saved backend that is no longer available', function (
     Livewire::test(Status::class)->assertSet('preferredAcceleration', 'qsv')
         ->assertSee('Your saved hardware backend is unavailable. Encoding will fall back to Software (CPU).')
         ->assertViewHas('effectiveAcceleration', null);
-    expect(app(ApplicationSettings::class)->hardwareAcceleration())->toBe('qsv');
+    expect(app(AccelerationPreference::class)->saved())->toBe('qsv');
 });
 
 it('rechecks availability when saving and refuses hardware that disappeared after loading', function (): void {
@@ -59,6 +60,15 @@ it('rechecks availability when saving and refuses hardware that disappeared afte
     expect(Setting::query()->count())->toBe(0);
 });
 
+it('rejects unsupported, unavailable and non-encoding backends without changing the preference', function (string $backend): void {
+    fakeSettingsHardware();
+    $setting = Setting::factory()->create(['key' => 'hardware_acceleration', 'value' => 'qsv']);
+
+    Livewire::test(Status::class)->set('preferredAcceleration', $backend)->call('saveHardwareAcceleration')
+        ->assertHasErrors(['preferredAcceleration']);
+    expect($setting->refresh()->value)->toBe('qsv');
+})->with(['cuda', 'vaapi', 'invalid', 'qsv; touch /tmp/injected', '']);
+
 it('allows switching to software when FFmpeg detection fails', function (): void {
     Setting::factory()->create(['key' => 'hardware_acceleration', 'value' => 'qsv']);
     fakeSettingsHardware(['*-version*' => Process::result(exitCode: 127)]);
@@ -66,7 +76,7 @@ it('allows switching to software when FFmpeg detection fails', function (): void
     Livewire::test(Status::class)->assertSee('Preferred hardware acceleration')
         ->set('preferredAcceleration', 'software')->call('saveHardwareAcceleration')->assertHasNoErrors()
         ->assertViewHas('effectiveAcceleration', null);
-    expect(app(ApplicationSettings::class)->hardwareAcceleration())->toBe('software');
+    expect(app(AccelerationPreference::class)->saved())->toBe('software');
 });
 
 it('only displays hardware encoding backends that can be selected', function (): void {
@@ -102,6 +112,6 @@ it('restores the saved backend when it becomes available again', function (): vo
     $component->assertViewHas('effectiveAcceleration', null);
 
     $component->call('refreshDetection')->assertSet('preferredAcceleration', 'qsv')
-        ->assertViewHas('effectiveAcceleration', 'qsv')
+        ->assertViewHas('effectiveAcceleration', HardwareBackend::QSV)
         ->assertDontSee('Your saved hardware backend is unavailable.');
 });

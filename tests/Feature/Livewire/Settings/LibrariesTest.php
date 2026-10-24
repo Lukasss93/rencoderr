@@ -1,14 +1,14 @@
 <?php
 
 use App\Jobs\ScanLibraryPath;
+use App\Library\DirectoryBrowser;
+use App\Library\LibraryPathResolver;
 use App\Livewire\Settings\Libraries;
 use App\Models\Library;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
 use App\Models\User;
-use App\Scan\DirectoryBrowser;
-use App\Scan\Enums\ScanStatus;
-use App\Scan\LibraryPathResolver;
+use App\Tasks\Enums\TaskStatus;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
@@ -37,10 +37,11 @@ it('creates a shared library with multiple roots and queues their initial scans'
     $second = mediaDirectory();
 
     Livewire::test(Libraries::class)->call('create')
-        ->set('name', 'Movies')->set('paths', [$first, $second])
-        ->set('interval', '2')->set('intervalUnit', 'hours')
-        ->set('exclusions', "Extras\n*sample*\n\nExtras")
-        ->call('save')->assertHasNoErrors()->assertSet('showEditor', false);
+        ->set('form.name', 'Movies')->set('form.paths', [$first, $second])
+        ->set('form.interval', '2')->set('form.intervalUnit', 'hours')
+        ->set('form.exclusions', "Extras\n*sample*\n\nExtras")
+        ->call('save')->assertHasNoErrors()->assertSet('showEditor', false)
+        ->assertDispatched('ts-ui:toast', type: 'success', title: 'Library saved.');
 
     $library = Library::query()->firstOrFail();
     expect($library->scan_interval_minutes)->toBe(120)
@@ -55,8 +56,8 @@ it('creates a shared library with multiple roots and queues their initial scans'
 it('accepts custom intervals in each supported unit', function (string $value, string $unit, int $minutes): void {
     Queue::fake([ScanLibraryPath::class]);
 
-    Livewire::test(Libraries::class)->set('name', 'Videos')->set('paths', [mediaDirectory()])
-        ->set('interval', $value)->set('intervalUnit', $unit)->call('save')->assertHasNoErrors();
+    Livewire::test(Libraries::class)->set('form.name', 'Videos')->set('form.paths', [mediaDirectory()])
+        ->set('form.interval', $value)->set('form.intervalUnit', $unit)->call('save')->assertHasNoErrors();
 
     expect(Library::query()->firstOrFail()->scan_interval_minutes)->toBe($minutes);
     Queue::assertPushed(ScanLibraryPath::class, 1);
@@ -69,8 +70,8 @@ it('accepts custom intervals in each supported unit', function (string $value, s
 
 it('rejects invalid library inputs', function (string $field, mixed $value, string $error): void {
     Queue::fake([ScanLibraryPath::class]);
-    $component = Livewire::test(Libraries::class)->set('name', 'Videos')->set('paths', [mediaDirectory()]);
-    $component->set($field, $value)->call('save')->assertHasErrors([$error]);
+    $component = Livewire::test(Libraries::class)->set('form.name', 'Videos')->set('form.paths', [mediaDirectory()]);
+    $component->set('form.'.$field, $value)->call('save')->assertHasErrors(['form.'.$error]);
 
     assertDatabaseCount('libraries', 0);
     Queue::assertNothingPushed();
@@ -90,8 +91,8 @@ it('asks to try again when another library save is still in progress', function 
     Sleep::fake(syncWithCarbon: true);
     Cache::lock('library-path-management', 30)->get();
 
-    Livewire::test(Libraries::class)->set('name', 'Videos')->set('paths', [mediaDirectory()])
-        ->call('save')->assertHasErrors(['paths' => 'Another library is being saved. Try again in a moment.']);
+    Livewire::test(Libraries::class)->set('form.name', 'Videos')->set('form.paths', [mediaDirectory()])
+        ->call('save')->assertHasErrors(['form.paths' => 'Another library is being saved. Try again in a moment.']);
 
     assertDatabaseCount('libraries', 0);
     Queue::assertNothingPushed();
@@ -103,8 +104,8 @@ it('rejects duplicate canonical roots even through symbolic aliases', function (
     $aliases = mediaDirectory();
     symlink($directory, $aliases.'/alias');
 
-    Livewire::test(Libraries::class)->set('name', 'Videos')
-        ->set('paths', [$directory.'/', $aliases.'/alias'])->call('save')->assertHasErrors(['paths.1']);
+    Livewire::test(Libraries::class)->set('form.name', 'Videos')
+        ->set('form.paths', [$directory.'/', $aliases.'/alias'])->call('save')->assertHasErrors(['form.paths.1']);
 
     assertDatabaseCount('libraries', 0);
     Queue::assertNothingPushed();
@@ -118,8 +119,8 @@ it('rejects root overlaps across libraries in either direction', function (bool 
     $proposed = $parentAlreadyConfigured ? $directory.'/movies' : $directory;
     LibraryPath::factory()->atPath($existing)->create();
 
-    Livewire::test(Libraries::class)->set('name', 'Other videos')->set('paths', [$proposed])
-        ->call('save')->assertHasErrors(['paths.0']);
+    Livewire::test(Libraries::class)->set('form.name', 'Other videos')->set('form.paths', [$proposed])
+        ->call('save')->assertHasErrors(['form.paths.0']);
 
     assertDatabaseCount('libraries', 1);
     Queue::assertNothingPushed();
@@ -132,7 +133,7 @@ it('accepts sibling roots with similar prefixes', function (): void {
     File::ensureDirectoryExists($directory.'/media-old');
     LibraryPath::factory()->atPath($directory.'/media')->create();
 
-    Livewire::test(Libraries::class)->set('name', 'Other videos')->set('paths', [$directory.'/media-old'])
+    Livewire::test(Libraries::class)->set('form.name', 'Other videos')->set('form.paths', [$directory.'/media-old'])
         ->call('save')->assertHasNoErrors();
 
     assertDatabaseCount('library_paths', 2);
@@ -147,8 +148,8 @@ it('edits settings while retaining an unavailable root and its inventory', funct
     File::deleteDirectory($root->path);
 
     Livewire::test(Libraries::class)->call('edit', $library->id)
-        ->assertSet('interval', '2')->assertSet('intervalUnit', 'hours')
-        ->set('name', 'Updated videos')->set('automaticScanning', false)->call('save')->assertHasNoErrors();
+        ->assertSet('form.interval', '2')->assertSet('form.intervalUnit', 'hours')
+        ->set('form.name', 'Updated videos')->set('form.automaticScanning', false)->call('save')->assertHasNoErrors();
 
     expect($library->refresh()->name)->toBe('Updated videos')->and($library->automatic_scanning)->toBeFalse();
     assertDatabaseHas('media_files', ['id' => $file->id]);
@@ -159,10 +160,10 @@ it('scans an added folder without delaying the automatic scan of existing folder
     Queue::fake([ScanLibraryPath::class]);
     freezeTime();
     $library = Library::factory()->create(['last_scan_requested_at' => now()->subMinutes(10)]);
-    $existing = LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => ScanStatus::Completed]);
+    $existing = LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => TaskStatus::COMPLETED]);
     $added = mediaDirectory();
 
-    Livewire::test(Libraries::class)->call('edit', $library->id)->set('newPath', $added)->call('save')->assertHasNoErrors();
+    Livewire::test(Libraries::class)->call('edit', $library->id)->set('form.newPath', $added)->call('save')->assertHasNoErrors();
 
     Queue::assertPushed(ScanLibraryPath::class, 1);
     Queue::assertPushed(ScanLibraryPath::class, fn (ScanLibraryPath $job): bool => $job->pathId !== $existing->id);
@@ -172,11 +173,11 @@ it('scans an added folder without delaying the automatic scan of existing folder
 it('rescans every folder when the exclusion patterns change', function (string $exclusions, int $scans): void {
     Queue::fake([ScanLibraryPath::class]);
     $library = Library::factory()->create(['exclusion_patterns' => ['Extras']]);
-    LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => ScanStatus::Completed]);
-    LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => ScanStatus::Completed]);
+    LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => TaskStatus::COMPLETED]);
+    LibraryPath::factory()->for($library)->atPath(mediaDirectory())->create(['scan_status' => TaskStatus::COMPLETED]);
 
     Livewire::test(Libraries::class)->call('edit', $library->id)
-        ->set('name', 'Renamed')->set('exclusions', $exclusions)->call('save')->assertHasNoErrors();
+        ->set('form.name', 'Renamed')->set('form.exclusions', $exclusions)->call('save')->assertHasNoErrors();
 
     Queue::assertPushed(ScanLibraryPath::class, $scans);
 })->with([
@@ -239,7 +240,7 @@ it('navigates and selects server folders while preserving the last valid locatio
         ->assertSet('listing.path', $directory.'/movies')
         ->assertSee('Parent folder')->set('browserPath', '/folder-that-does-not-exist-rencoderr')->call('navigate')
         ->assertHasErrors(['browserPath'])->assertSet('listing.path', $directory.'/movies')
-        ->call('selectDirectory')->assertSet('paths', [$directory.'/movies'])->assertSet('showBrowser', false);
+        ->call('selectDirectory')->assertSet('form.paths', [$directory.'/movies'])->assertSet('showBrowser', false);
 });
 
 it('reads a browsed folder from disk only when navigating, not on every refresh', function (): void {
@@ -258,7 +259,7 @@ it('rejects selecting a directory that disappeared after navigation', function (
     $component = Livewire::test(Libraries::class)->call('create')->call('browse')->call('navigate', $directory);
     File::deleteDirectory($directory);
 
-    $component->call('selectDirectory')->assertHasErrors(['browserPath'])->assertSet('paths', []);
+    $component->call('selectDirectory')->assertHasErrors(['browserPath'])->assertSet('form.paths', []);
 });
 
 it('renders working folder navigation arguments for paths containing special characters', function (): void {
@@ -297,9 +298,9 @@ it('renders working folder navigation arguments for paths containing special cha
 });
 
 it('validates manually added paths at save rather than trusting the selection list', function (): void {
-    Livewire::test(Libraries::class)->call('create')->set('name', 'Videos')->set('newPath', 'relative-path')
-        ->call('addPath')->assertSet('paths', ['relative-path'])
-        ->call('save')->assertHasErrors(['paths.0']);
+    Livewire::test(Libraries::class)->call('create')->set('form.name', 'Videos')->set('form.newPath', 'relative-path')
+        ->call('addPath')->assertSet('form.paths', ['relative-path'])
+        ->call('save')->assertHasErrors(['form.paths.0']);
     assertDatabaseCount('libraries', 0);
 });
 
@@ -309,7 +310,7 @@ it('allows library creation through a guest Livewire request when authentication
     $page = get(route('settings.libraries'))->assertOk();
 
     postJson(Livewire::getUpdateUri(), livewireUpdatePayload($page, [
-        'name' => 'Local videos', 'paths' => [mediaDirectory()],
+        'form.name' => 'Local videos', 'form.paths' => [mediaDirectory()],
     ], [['method' => 'save', 'params' => []]]), ['X-Livewire' => 'true'])->assertOk();
 
     assertDatabaseHas('libraries', ['name' => 'Local videos']);
@@ -353,7 +354,7 @@ it('rejects unreadable folders and hides them from the folder picker', function 
 });
 
 it('rejects interval conversion that exceeds the stored minute range', function (): void {
-    Livewire::test(Libraries::class)->set('name', 'Videos')->set('paths', [mediaDirectory()])
-        ->set('interval', '2147483647')->set('intervalUnit', 'days')->call('save')->assertHasErrors(['interval']);
+    Livewire::test(Libraries::class)->set('form.name', 'Videos')->set('form.paths', [mediaDirectory()])
+        ->set('form.interval', '2147483647')->set('form.intervalUnit', 'days')->call('save')->assertHasErrors(['form.interval']);
     assertDatabaseCount('libraries', 0);
 });

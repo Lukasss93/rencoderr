@@ -2,8 +2,8 @@
 
 namespace App\Providers;
 
-use App\Settings\HorizonWorkers;
-use App\Settings\ProvisionHorizonSupervisor;
+use App\Workers\HorizonWorkers;
+use App\Workers\ProvisionHorizonSupervisor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;

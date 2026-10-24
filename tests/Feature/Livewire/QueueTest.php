@@ -5,7 +5,7 @@ use App\Livewire\Queue;
 use App\Models\Library;
 use App\Models\LibraryPath;
 use App\Models\User;
-use App\Scan\Enums\ScanStatus;
+use App\Tasks\Enums\TaskStatus;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Queue as JobQueue;
@@ -22,13 +22,13 @@ it('keeps background scan jobs out of the transcoding queue', function (): void 
     freezeTime();
     $library = Library::factory()->create(['name' => 'Movies']);
     $running = LibraryPath::factory()->for($library)->atPath('/media/running')->create([
-        'scan_status' => ScanStatus::Scanning, 'scan_requested_at' => now(), 'scan_started_at' => now(),
+        'scan_status' => TaskStatus::RUNNING, 'scan_requested_at' => now(), 'scan_started_at' => now(),
     ]);
     $waiting = LibraryPath::factory()->for($library)->atPath('/media/waiting')->create([
-        'scan_status' => ScanStatus::Queued, 'scan_requested_at' => now(),
+        'scan_status' => TaskStatus::QUEUED, 'scan_requested_at' => now(),
     ]);
     LibraryPath::factory()->for($library)->atPath('/media/failed')->create([
-        'scan_status' => ScanStatus::Failed, 'scan_requested_at' => now(), 'scan_error' => 'Storage unavailable.',
+        'scan_status' => TaskStatus::FAILED, 'scan_requested_at' => now(), 'scan_error' => 'Storage unavailable.',
     ]);
     LibraryPath::factory()->for($library)->atPath('/media/not-scanned')->create();
     JobQueue::push(new ScanLibraryPath($running->id, (string) Str::uuid()));
@@ -46,7 +46,7 @@ it('keeps background scan jobs out of the transcoding queue', function (): void 
 
 it('keeps the transcoding queue empty when a library scan finishes', function (): void {
     Config::set('queue.default', 'database');
-    $root = LibraryPath::factory()->create(['scan_status' => ScanStatus::Scanning, 'scan_requested_at' => now()]);
+    $root = LibraryPath::factory()->create(['scan_status' => TaskStatus::RUNNING, 'scan_requested_at' => now()]);
     JobQueue::push(new ScanLibraryPath($root->id, (string) Str::uuid()));
     $job = JobQueue::pop();
 
@@ -58,15 +58,15 @@ it('keeps the transcoding queue empty when a library scan finishes', function ()
     $component->assertSee('Queue empty')->assertSee('No transcoding jobs yet');
 
     $job->delete();
-    $root->update(['scan_status' => ScanStatus::Completed, 'scan_finished_at' => now()]);
+    $root->update(['scan_status' => TaskStatus::COMPLETED, 'scan_finished_at' => now()]);
     $component->call('$refresh')->assertSee('Queue empty')->assertSee('No transcoding jobs yet')
         ->assertDontSee('Scan completed');
 });
 
 it('ignores old scan status links on the transcoding queue', function (): void {
-    LibraryPath::factory()->atPath('/media/pending')->create(['scan_status' => ScanStatus::Queued]);
-    LibraryPath::factory()->atPath('/media/completed')->create(['scan_status' => ScanStatus::Completed]);
-    LibraryPath::factory()->atPath('/media/failed')->create(['scan_status' => ScanStatus::Failed]);
+    LibraryPath::factory()->atPath('/media/pending')->create(['scan_status' => TaskStatus::QUEUED]);
+    LibraryPath::factory()->atPath('/media/completed')->create(['scan_status' => TaskStatus::COMPLETED]);
+    LibraryPath::factory()->atPath('/media/failed')->create(['scan_status' => TaskStatus::FAILED]);
 
     Livewire::withQueryParams(['status' => 'failed'])->test(Queue::class)
         ->assertSee('No transcoding jobs yet')->assertDontSee('Scan status')
@@ -78,7 +78,7 @@ it('does not paginate library scans on the transcoding queue', function (): void
 
     for ($index = 0; $index < 26; $index++) {
         LibraryPath::factory()->for($library)->atPath('/media/folder-'.$index)->create([
-            'scan_status' => $index === 0 ? ScanStatus::Failed : ScanStatus::Completed,
+            'scan_status' => $index === 0 ? TaskStatus::FAILED : TaskStatus::COMPLETED,
             'scan_requested_at' => now(),
         ]);
     }
@@ -93,7 +93,7 @@ it('does not expose library names folder paths or scan errors in the queue page'
     $path = '/media/<img src=x onerror=alert(1)>';
     $error = '<script>error()</script>';
     LibraryPath::factory()->for(Library::factory()->create(['name' => $name]))->atPath($path)->create([
-        'scan_status' => ScanStatus::Failed, 'scan_error' => $error,
+        'scan_status' => TaskStatus::FAILED, 'scan_error' => $error,
     ]);
 
     actingAs(User::factory()->create())->get(route('queue.index'))->assertOk()

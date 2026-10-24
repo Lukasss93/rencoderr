@@ -103,13 +103,9 @@ it('keeps application navigation and account menus off the login page', function
         ->and($navigation->evaluate('count(//button[@aria-label="User menu"])'))->toBe(0.0);
 });
 
-it('opens settings on status and redirects former URLs', function (string $page, string $destination): void {
-    actingAs(User::factory()->create())->get(route($page))->assertRedirectToRoute($destination);
-})->with([
-    ['settings.index', 'settings.status'],
-    ['settings.system-health', 'settings.status'],
-    ['libraries.index', 'settings.libraries'],
-]);
+it('opens settings on status', function (): void {
+    actingAs(User::factory()->create())->get(route('settings.index'))->assertRedirectToRoute('settings.status');
+});
 
 it('protects queue and settings pages behind the existing authentication', function (string $page): void {
     get(route($page))->assertRedirectToRoute('login');

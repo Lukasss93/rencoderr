@@ -1,15 +1,9 @@
-<div class="space-y-6" wire:poll.5s>
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-2">
-            <h1 class="text-3xl font-semibold tracking-tight">Libraries</h1>
-            <p class="text-gray-600 dark:text-gray-300">Choose the folders to scan for video files.</p>
-        </div>
-        <x-button text="Add library" icon="plus" wire:click="create" />
-    </div>
+@use('App\Tasks\Enums\TaskStatus')
 
-    @if ($notice !== '')
-        <p role="status" class="rounded-lg bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-950 dark:text-primary-200">{{ $notice }}</p>
-    @endif
+<div class="space-y-6" wire:poll.5s>
+    <x-page-header title="Libraries" description="Choose the folders to scan for video files.">
+        <x-button text="Add library" icon="plus" wire:click="create" />
+    </x-page-header>
 
     @forelse ($libraries as $library)
         <x-card wire:key="library-{{ $library->id }}">
@@ -33,8 +27,16 @@
                         <div class="space-y-2 py-3" wire:key="path-{{ $path->id }}">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <p class="break-all font-mono text-sm">{{ $path->path }}</p>
-                                <x-badge :text="ucfirst($path->scan_status->value)"
-                                    :color="$path->scan_status === \App\Scan\Enums\ScanStatus::Failed ? 'red' : ($path->scan_status->isActive() ? 'blue' : 'green')" />
+                                <x-badge :text="match ($path->scan_status) {
+                                        TaskStatus::PENDING => 'Not scanned',
+                                        TaskStatus::RUNNING => 'Scanning',
+                                        default => ucfirst($path->scan_status->value),
+                                    }"
+                                    :color="match (true) {
+                                        $path->scan_status === TaskStatus::FAILED => 'red',
+                                        $path->scan_status->isActive() => 'blue',
+                                        default => 'green',
+                                    }" />
                             </div>
                             <p class="text-sm text-gray-500 dark:text-gray-400">
                                 Last successful scan: {{ $path->last_successful_scan_at ? $path->last_successful_scan_at->format('Y-m-d H:i:s').' UTC' : 'Never' }}
@@ -58,26 +60,26 @@
 
     <x-modal wire="showEditor" :title="$editingId ? 'Edit library' : 'Add library'" size="3xl" center>
         <form wire:submit="save" class="space-y-6">
-            <x-input label="Library name" wire:model="name" placeholder="Movies" />
+            <x-input label="Library name" wire:model="form.name" placeholder="Movies" />
             <div class="space-y-3">
                 <h3 class="font-semibold">Folders</h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400">Use paths visible to the application server or container, including mounted network drives.</p>
-                @foreach ($paths as $index => $path)
+                @foreach ($form->paths as $index => $path)
                     <div class="space-y-1" wire:key="selected-path-{{ $index }}-{{ md5($path) }}">
                         <div class="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
                             <p class="break-all font-mono text-sm">{{ $path }}</p>
                             <x-button text="Remove" sm flat color="red" wire:click="removePath({{ $index }})"
                                 wire:confirm="Remove this folder from the library? Its inventory will be removed when you save. Source files will remain unchanged." />
                         </div>
-                        @error('paths.'.$index)
+                        @error('form.paths.'.$index)
                             <p class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
                         @enderror
                     </div>
                 @endforeach
-                @error('paths')
+                @error('form.paths')
                     <p class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
                 @enderror
-                <x-input label="Absolute folder path" wire:model="newPath" placeholder="/media/movies" />
+                <x-input label="Absolute folder path" wire:model="form.newPath" placeholder="/media/movies" />
                 <div class="flex flex-wrap gap-2">
                     <x-button text="Add folder" sm flat wire:click="addPath" />
                     <x-button text="Browse server folders" sm flat icon="folder" wire:click="browse" />
@@ -125,16 +127,16 @@
                 </div>
             @endif
 
-            <x-checkbox label="Scan automatically" wire:model="automaticScanning" />
+            <x-checkbox label="Scan automatically" wire:model="form.automaticScanning" />
             <div class="grid gap-4 sm:grid-cols-2">
-                <x-input label="Scan interval" type="number" min="1" step="1" wire:model="interval" />
-                <x-select.native label="Interval unit" wire:model="intervalUnit" :options="[
+                <x-input label="Scan interval" type="number" min="1" step="1" wire:model="form.interval" />
+                <x-select.native label="Interval unit" wire:model="form.intervalUnit" :options="[
                     ['label' => 'Minutes', 'value' => 'minutes'],
                     ['label' => 'Hours', 'value' => 'hours'],
                     ['label' => 'Days', 'value' => 'days'],
                 ]" />
             </div>
-            <x-textarea label="Exclusion patterns" wire:model="exclusions" rows="4"
+            <x-textarea label="Exclusion patterns" wire:model="form.exclusions" rows="4"
                 hint="One pattern per line. * matches any characters. Patterns are case-sensitive and match filenames or relative paths; matching folders skip their contents."
                 placeholder="Extras&#10;*sample*" />
             <div class="flex justify-end gap-3">

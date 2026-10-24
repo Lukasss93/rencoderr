@@ -2,101 +2,84 @@
 
 namespace App\Livewire\Settings;
 
-use App\Encoding\FfmpegHealth;
-use App\Settings\ApplicationSettings;
+use App\Encoding\AccelerationPreference;
+use App\Encoding\Data\Detection;
+use App\Encoding\EncoderDetector;
+use App\Encoding\EncoderTester;
+use App\Encoding\Enums\EncoderType;
 use Illuminate\Contracts\View\View;
-use Livewire\Attributes\Locked;
+use Illuminate\Validation\Rule;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
-/**
- * @phpstan-import-type Detection from FfmpegHealth
- * @phpstan-import-type EncoderCheck from FfmpegHealth
- */
+/** @property-read Detection $detection */
 #[Title('Status')]
 class Status extends Component
 {
-    /** @var Detection */
-    #[Locked]
-    public array $report = ['version' => null, 'error' => null, 'encoders' => [], 'acceleration' => ['backends' => [], 'error' => null]];
+    use Interactions;
 
-    /** @var array<string, EncoderCheck> */
-    #[Locked]
-    public array $checks = [];
+    public string $preferredAcceleration = AccelerationPreference::AUTOMATIC;
 
-    #[Locked]
-    public string $checkedAt = '';
-
-    public string $preferredAcceleration = 'auto';
-
-    public string $notice = '';
-
-    public function mount(FfmpegHealth $health, ApplicationSettings $settings): void
+    public function mount(AccelerationPreference $preference): void
     {
-        $this->preferredAcceleration = $settings->hardwareAcceleration();
-        $this->refreshDetection($health);
+        $this->preferredAcceleration = $preference->saved();
     }
 
-    public function saveHardwareAcceleration(ApplicationSettings $settings, FfmpegHealth $health): void
+    #[Computed]
+    public function detection(): Detection
     {
-        $this->notice = '';
-        $this->validate(['preferredAcceleration' => ['required', 'string', 'max:50']]);
-        $this->refreshDetection($health);
-        $settings->saveHardwareAcceleration($this->preferredAcceleration, $this->report);
-        $this->notice = 'Hardware acceleration preference saved.';
+        return app(EncoderDetector::class)->current();
     }
 
-    public function refreshDetection(FfmpegHealth $health): void
+    /**
+     * Hardware may have changed since the page loaded, so the choice is checked against a fresh detection.
+     */
+    public function saveHardwareAcceleration(AccelerationPreference $preference, EncoderDetector $detector): void
     {
-        $this->report = $health->detect();
-        $this->checks = [];
-        $this->checkedAt = now()->utc()->format('Y-m-d H:i:s').' UTC';
+        $detection = $detector->refresh();
+        unset($this->detection);
+        $this->validate([
+            'preferredAcceleration' => ['required', Rule::in($preference->choices($detection))],
+        ], [
+            'preferredAcceleration.in' => 'Choose an available hardware encoding backend, Automatic, or Software (CPU).',
+            'preferredAcceleration.required' => 'Choose a hardware acceleration preference.',
+        ]);
+        $preference->save($this->preferredAcceleration);
+        $this->toast()->success('Hardware acceleration preference saved.')->send();
     }
 
-    public function testEncoder(string $name, FfmpegHealth $health): void
+    public function refreshDetection(EncoderDetector $detector): void
     {
-        $encoder = collect($this->report['encoders'])->firstWhere('name', $name);
-        abort_unless($encoder !== null && $encoder['testable'], 404);
-
-        $this->checks[$name] = $health->testEncoder($name);
-
-        $backend = $encoder['backend'];
-
-        if ($this->checks[$name]['successful'] && $backend !== null && isset($this->report['acceleration']['backends'][$backend])) {
-            $this->report['acceleration']['backends'][$backend]['available'] = true;
-            $this->report['acceleration']['backends'][$backend]['message'] = 'Encoded a generated frame with '.$name.'.';
-        }
+        $detector->refresh();
+        unset($this->detection);
     }
 
-    public function render(): View
+    public function testEncoder(string $name, EncoderTester $tester): void
     {
-        $settings = app(ApplicationSettings::class);
-        $availableBackends = $settings->availableHardwareBackends($this->report);
-        $savedAcceleration = $settings->hardwareAcceleration();
-        $groups = [
-            'Video' => ['Hardware' => [], 'Software' => [], 'Supported' => []],
-            'Audio' => ['Hardware' => [], 'Software' => [], 'Supported' => []],
-        ];
+        $encoder = $this->detection->encoder($name);
+        abort_unless($encoder?->isTestable() === true, 404);
 
-        $counts = ['Video' => 0, 'Audio' => 0];
+        $tester->test($encoder);
+        unset($this->detection);
+    }
 
-        foreach ($this->report['encoders'] as $encoder) {
-            $backend = $encoder['backend'];
-            $available = ! $encoder['hardware'] || ($backend !== null && ($this->report['acceleration']['backends'][$backend]['available'] ?? false));
-            $available = $available && ($this->checks[$encoder['name']]['successful'] ?? true);
-            $category = $encoder['hardware'] ? ($available ? 'Hardware' : 'Supported') : 'Software';
-            $counts[$encoder['type']] += (int) $available;
-            $groups[$encoder['type']][$category][$encoder['codec']][] = $encoder;
-        }
+    public function render(AccelerationPreference $preference): View
+    {
+        $detection = $this->detection;
+        $availableBackends = $preference->availableBackends($detection);
+        $savedAcceleration = $preference->saved();
 
         return view('livewire.settings.status', [
+            'detection' => $detection,
             'availableBackends' => $availableBackends,
             'savedAcceleration' => $savedAcceleration,
-            'effectiveAcceleration' => $settings->resolveHardwareAcceleration($this->report),
-            'savedAccelerationUnavailable' => ! in_array($savedAcceleration, ['auto', 'software'], true) && ! isset($availableBackends[$savedAcceleration]),
-            'groups' => $groups,
-            'videoCount' => $counts['Video'],
-            'audioCount' => $counts['Audio'],
+            'effectiveAcceleration' => $preference->resolve($detection),
+            'savedAccelerationUnavailable' => ! in_array($savedAcceleration, $preference->choices($detection), true),
+            'groups' => $detection->encodersByCategory(),
+            'videoCount' => $detection->availableCount(EncoderType::VIDEO),
+            'audioCount' => $detection->availableCount(EncoderType::AUDIO),
         ])->layoutData(['settingsPage' => true]);
     }
 }

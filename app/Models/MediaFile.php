@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use App\Encoding\Enums\ProbeStatus;
-use App\Scan\Enums\MediaFileStatus;
+use App\Library\Enums\MediaFileStatus;
+use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\MediaFileFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -41,8 +41,8 @@ class MediaFile extends Model
     {
         $probe = $this->probe;
 
-        return $this->status === MediaFileStatus::Present && $probe !== null
-            && $probe->status === ProbeStatus::Completed && $probe->matches($this);
+        return $this->status === MediaFileStatus::PRESENT && $probe !== null
+            && $probe->status === TaskStatus::COMPLETED && $probe->matches($this);
     }
 
     public function formattedSize(): string
@@ -50,7 +50,6 @@ class MediaFile extends Model
         return Number::fileSize($this->size_bytes, maxPrecision: 2);
     }
 
-    /** @return array<string, string> */
     protected function casts(): array
     {
         return [

@@ -32,7 +32,6 @@ class Library extends Model
         return $this->hasManyThrough(MediaFile::class, LibraryPath::class);
     }
 
-    /** @return array<string, string> */
     protected function casts(): array
     {
         return [

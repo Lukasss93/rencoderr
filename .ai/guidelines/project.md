@@ -34,6 +34,21 @@ vendor/bin/pint --test
 - Keep the shared Laravel test case binding in `tests/Pest.php` scoped to feature tests.
 - Real-browser testing and manual browser verification must be performed by the user, never by agents. Agents verify changes with Pest, PHPStan, Pint, and frontend builds.
 
+## Code Organization
+
+- Group code by domain under `app/`. Each domain folder holds its actions, enums, events, listeners, exceptions and value objects:
+  - `Library`: libraries, their folders, files on disk and scanning.
+  - `Probe`: ffprobe metadata for media files.
+  - `Encoding`: available encoders, hardware acceleration and the acceleration preference.
+  - `Ffmpeg`: running FFmpeg and the hardware backend vocabulary shared by the other domains.
+  - `Tasks`: the status and queue names shared by tracked background work.
+  - `Workers`: the Horizon worker limit.
+  - `Users`: account management.
+- Keep models in `app/Models`, jobs in `app/Jobs`, and Livewire form objects in `app/Livewire/Forms`. Write a query where it is used; turn it into a `#[Scope]` or a model method only when several places need it.
+- Track background work with `TaskStatus` and token-guarded state changes, run it on a `WorkQueue`, and requeue interrupted work in the `tasks:recover` command.
+- Let domains react to each other through events, such as `LibraryPathScanned`, instead of calling each other directly.
+- Write enum case names in UPPERCASE.
+
 ## Frontend
 
 - Build interactive pages with Livewire 4 and use TallStackUI 4 Blade components for the interface.

@@ -3,18 +3,19 @@
 namespace App\Models;
 
 use App\Jobs\ScanLibraryPath;
-use App\Scan\Enums\ScanStatus;
+use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Database\Factories\LibraryPathFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * @property ScanStatus $scan_status
- * @property string|null $scan_token
+ * @property TaskStatus $scan_status
  * @property CarbonImmutable|null $scan_requested_at
  * @property CarbonImmutable|null $scan_started_at
  * @property CarbonImmutable|null $scan_finished_at
@@ -38,12 +39,6 @@ class LibraryPath extends Model
         return $this->hasMany(MediaFile::class);
     }
 
-    /**
-     * Whether a scan is queued or running and has made progress within the scan timeout.
-     *
-     * A queued or running scan that has gone quiet for longer was lost, for example
-     * because the queue was cleared or the worker was killed.
-     */
     public function hasPendingScan(): bool
     {
         if (! $this->scan_status->isActive()) {
@@ -55,11 +50,40 @@ class LibraryPath extends Model
         return $lastProgressAt?->addSeconds(ScanLibraryPath::TIMEOUT_SECONDS)->isFuture() ?? false;
     }
 
-    /** @return array<string, string> */
+    /** Only updates the folder if no other request or job has changed it since it was read. */
+    public function queueScan(string $token): bool
+    {
+        return self::query()->whereKey($this->id)
+            ->where('scan_status', $this->scan_status)
+            ->where('scan_token', $this->scan_token)
+            ->update([
+                'scan_status' => TaskStatus::QUEUED,
+                'scan_token' => $token,
+                'scan_requested_at' => now(),
+                'scan_started_at' => null,
+                'scan_finished_at' => null,
+                'scan_error' => null,
+            ]) === 1;
+    }
+
+    /** @param Builder<LibraryPath> $query */
+    #[Scope]
+    protected function scanRequest(Builder $query, int $pathId, string $token): void
+    {
+        $query->whereKey($pathId)->where('scan_token', $token);
+    }
+
+    /** @param Builder<LibraryPath> $query */
+    #[Scope]
+    protected function runningScan(Builder $query, int $pathId, string $token): void
+    {
+        $query->scanRequest($pathId, $token)->where('scan_status', TaskStatus::RUNNING);
+    }
+
     protected function casts(): array
     {
         return [
-            'scan_status' => ScanStatus::class,
+            'scan_status' => TaskStatus::class,
             'scan_requested_at' => 'immutable_datetime',
             'scan_started_at' => 'immutable_datetime',
             'scan_finished_at' => 'immutable_datetime',

@@ -98,7 +98,7 @@ For NVIDIA hardware, install the NVIDIA Container Toolkit on the host, add `NVID
               capabilities: [gpu]
 ```
 
-Apply the changes with `docker compose up -d`. Open **Settings → Status** to inspect detected encoders, test them, and choose your hardware acceleration preference. Availability depends on the host GPU, drivers, and FFmpeg support.
+Apply the changes with `docker compose up -d`. Open **Settings → Status** to inspect detected encoders, test them, and choose your hardware acceleration preference. Availability depends on the host GPU, drivers, and FFmpeg support. Detection results are kept until you select **Refresh detection** or restart the container.
 
 ## Development checks
 

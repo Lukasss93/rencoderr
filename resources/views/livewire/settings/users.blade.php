@@ -1,15 +1,7 @@
 <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-2">
-            <h1 class="text-3xl font-semibold tracking-tight">Users</h1>
-            <p class="text-gray-600 dark:text-gray-300">Manage the accounts that can sign in. Every user has full access to the application.</p>
-        </div>
+    <x-page-header title="Users" description="Manage the accounts that can sign in. Every user has full access to the application.">
         <x-button text="Add user" icon="plus" wire:click="create" />
-    </div>
-
-    @if ($notice !== '')
-        <p role="status" class="rounded-lg bg-primary-50 p-4 text-sm text-primary-800 dark:bg-primary-950 dark:text-primary-200">{{ $notice }}</p>
-    @endif
+    </x-page-header>
 
     @error('delete')
         <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
@@ -42,11 +34,11 @@
 
     <x-modal wire="showEditor" :title="$editingId ? 'Edit user' : 'Add user'" center>
         <form wire:submit="save" class="space-y-6">
-            <x-input label="Name" wire:model="name" autocomplete="name" required />
-            <x-input label="Email" type="email" wire:model="email" autocomplete="off" required />
-            <x-input :label="$editingId ? 'New password' : 'Password'" type="password" wire:model="password" autocomplete="new-password"
+            <x-input label="Name" wire:model="form.name" autocomplete="name" required />
+            <x-input label="Email" type="email" wire:model="form.email" autocomplete="off" required />
+            <x-input :label="$editingId ? 'New password' : 'Password'" type="password" wire:model="form.password" autocomplete="new-password"
                 :hint="$editingId ? 'Leave blank to keep the current password.' : 'Use at least 8 characters.'" />
-            <x-input label="Confirm password" type="password" wire:model="passwordConfirmation" autocomplete="new-password" />
+            <x-input label="Confirm password" type="password" wire:model="form.passwordConfirmation" autocomplete="new-password" />
             @if ($editingId)
                 <p class="text-sm text-gray-500 dark:text-gray-400">
                     {{ $editingId === auth()->id() ? 'Changing your password signs you out. Sign in again with your new password.' : 'Changing the password signs this user out of their existing sessions.' }}

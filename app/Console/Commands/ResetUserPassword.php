@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\User;
-use Illuminate\Auth\Events\PasswordReset;
+use App\Users\Actions\SaveUser;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -15,10 +15,7 @@ use Illuminate\Validation\Rules\Password;
 #[Description('Reset an account password and revoke its sessions and remembered logins')]
 class ResetUserPassword extends Command
 {
-    /**
-     * Execute the console command.
-     */
-    public function handle(): int
+    public function handle(SaveUser $saveUser): int
     {
         if (! $this->input->isInteractive()) {
             $this->error('This command requires interactive input.');
@@ -61,12 +58,7 @@ class ResetUserPassword extends Command
             return self::FAILURE;
         }
 
-        $user->forceFill([
-            'password' => $password,
-            'remember_token' => Str::random(60),
-        ])->save();
-
-        event(new PasswordReset($user));
+        $saveUser->resetPassword($user, $password);
 
         $this->info('Password reset successfully.');
 
