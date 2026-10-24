@@ -136,8 +136,16 @@ it('kills an uncooperative probe even when decoding its streamed metadata throws
     try {
         expect(fn () => $runner->inspectHdr('/source.mkv', 0, 2, fn (): bool => false, function (): void {}))->toThrow(JsonException::class);
         $pid = (int) file_get_contents($pidPath);
-        $status = @file_get_contents('/proc/'.$pid.'/stat');
-        expect($status === false || preg_match('/^\d+ \(.*\) Z /', $status) === 1)->toBeTrue();
+        $until = microtime(true) + 2;
+        do {
+            $status = @file_get_contents('/proc/'.$pid.'/stat');
+            $stopped = $status === false || preg_match('/^\d+ \(.*\) Z /', $status) === 1;
+            if (! $stopped) {
+                usleep(10000);
+            }
+        } while (! $stopped && microtime(true) < $until);
+
+        expect($stopped)->toBeTrue();
     } finally {
         if (is_file($pidPath)) {
             @posix_kill((int) file_get_contents($pidPath), SIGKILL);
