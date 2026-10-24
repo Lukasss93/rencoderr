@@ -332,7 +332,7 @@ it('processes both queues through a real worker with scans taking priority', fun
 
     expect($file->refresh()->unsetRelation('probe')->hasCurrentProbe())->toBeTrue();
     expect(DB::table('jobs')->count())->toBe(0);
-    expect(config('horizon.defaults.supervisor-1.queue'))->toBe(['scans', 'probes']);
+    expect(config('horizon.defaults.supervisor-1.queue'))->toBe(['scans', 'probes', 'default']);
     $commands = DevCommands::commands();
     expect(array_column($commands, 'command', 'name'))->toMatchArray(['horizon' => 'php artisan horizon']);
 });

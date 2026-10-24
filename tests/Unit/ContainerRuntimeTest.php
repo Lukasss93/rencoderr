@@ -116,7 +116,7 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 mkdir('/config/media-fixture');
 file_put_contents('/config/media-fixture/movie.mkv', 'test video');
 $id = Illuminate\Support\Facades\DB::table('libraries')->insertGetId(['name' => 'Fixture', 'automatic_scanning' => false, 'exclusion_patterns' => '[]']);
-Illuminate\Support\Facades\DB::table('library_paths')->insert(['library_id' => $id, 'path' => '/config/media-fixture', 'path_hash' => hash('sha256', '/config/media-fixture'), 'scan_status' => 'scanning', 'scan_token' => 'old', 'scan_started_at' => now()]);
+Illuminate\Support\Facades\DB::table('library_paths')->insert(['library_id' => $id, 'path' => '/config/media-fixture', 'path_hash' => hash('sha256', '/config/media-fixture'), 'scan_status' => 'running', 'scan_token' => 'old', 'scan_started_at' => now()]);
 PHP]);
         containerCommand(['kill', $name]);
         containerCommand(['start', $name]);

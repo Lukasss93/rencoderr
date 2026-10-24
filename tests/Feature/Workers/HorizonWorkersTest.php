@@ -48,7 +48,7 @@ it('loads the saved limit before Horizon provisions supervisors', function (): v
 
     expect($supervisor->options->maxProcesses)->toBe(4)
         ->and($supervisor->options->minProcesses)->toBe(1)
-        ->and($supervisor->options->queue)->toBe('scans,probes')
+        ->and($supervisor->options->queue)->toBe('scans,probes,default')
         ->and($supervisor->process->getCommandLine())->toContain('--max-processes=4');
 });
 
