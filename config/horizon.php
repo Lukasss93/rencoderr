@@ -200,7 +200,7 @@ return [
     'defaults' => [
         'supervisor-1' => [
             'connection' => 'redis',
-            'queue' => array_column(WorkQueue::cases(), 'value'),
+            'queue' => [WorkQueue::SCANS->value, WorkQueue::PROBES->value, WorkQueue::DEFAULT->value],
             'balance' => false,
             'autoScalingStrategy' => 'time',
             'maxProcesses' => (int) env('HORIZON_WORKERS', 1),
@@ -211,10 +211,22 @@ return [
             'timeout' => 1830,
             'nice' => 0,
         ],
+        'supervisor-transcodes' => [
+            'connection' => 'redis-transcodes',
+            'queue' => [WorkQueue::TRANSCODES->value],
+            'balance' => false,
+            'maxProcesses' => (int) env('HORIZON_TRANSCODE_WORKERS', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => max(1, (int) env('TRANSCODE_TIMEOUT_SECONDS', 604800)) + 120,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
-        '*' => ['supervisor-1' => []],
+        '*' => ['supervisor-1' => [], 'supervisor-transcodes' => []],
     ],
 
     /*

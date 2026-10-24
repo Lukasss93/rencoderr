@@ -10,6 +10,11 @@ enum AudioCodec: string
 
     case OPUS = 'opus';
 
+    public function encoder(): string
+    {
+        return $this === self::OPUS ? 'libopus' : $this->value;
+    }
+
     public function label(): string
     {
         return match ($this) {

@@ -6,6 +6,7 @@ use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EnsureAuthenticationEnabled;
 use App\Library\Events\LibraryPathScanned;
 use App\Models\Library;
+use App\Models\MediaTranscode;
 use App\Probe\Listeners\QueueProbesAfterScan;
 use App\Probe\MediaProber;
 use FFMpeg\Driver\FFMpegDriver;
@@ -27,7 +28,7 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Relation::morphMap(['library' => Library::class]);
+        Relation::morphMap(['library' => Library::class, 'media_transcode' => MediaTranscode::class]);
 
         if ($this->app->runningInConsole()) {
             DevCommands::artisan('schedule:work', 'scheduler');

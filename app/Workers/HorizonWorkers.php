@@ -2,6 +2,7 @@
 
 namespace App\Workers;
 
+use App\Workers\Enums\WorkerPool;
 use App\Workers\Enums\WorkerState;
 use Laravel\Horizon\Contracts\SupervisorRepository;
 use Laravel\Horizon\Events\SupervisorLooped;
@@ -13,25 +14,36 @@ class HorizonWorkers
 
     public function __construct(private WorkerLimit $limit, private SupervisorRepository $supervisors) {}
 
-    public static function manages(string $name): bool
+    public static function manages(string $name, WorkerPool $pool = WorkerPool::STANDARD): bool
     {
-        return str_ends_with($name, ':'.self::SUPERVISOR);
+        return str_ends_with($name, ':'.$pool->supervisor());
+    }
+
+    public static function poolFor(string $name): ?WorkerPool
+    {
+        foreach (WorkerPool::cases() as $pool) {
+            if (self::manages($name, $pool)) {
+                return $pool;
+            }
+        }
+
+        return null;
     }
 
     public function looped(SupervisorLooped $event): void
     {
-        if (self::manages($event->supervisor->name)) {
-            $event->supervisor->options->maxProcesses = $this->limit->get();
+        if (($pool = self::poolFor($event->supervisor->name)) !== null) {
+            $event->supervisor->options->maxProcesses = $this->limit->get($pool);
         }
     }
 
-    public function status(): WorkerStatus
+    public function status(WorkerPool $pool = WorkerPool::STANDARD): WorkerStatus
     {
         try {
             $supervisors = $this->supervisors->all();
 
             foreach ($supervisors as $supervisor) {
-                if (self::manages($supervisor->name)) {
+                if (self::manages($supervisor->name, $pool)) {
                     return new WorkerStatus(
                         $supervisor->status === 'paused' ? WorkerState::PAUSED : WorkerState::RUNNING,
                         $supervisor->options['maxProcesses'],

@@ -9,6 +9,8 @@ enum TaskStatus: string
     case RUNNING = 'running';
     case COMPLETED = 'completed';
     case FAILED = 'failed';
+    case SKIPPED = 'skipped';
+    case CANCELLED = 'cancelled';
 
     public function isActive(): bool
     {

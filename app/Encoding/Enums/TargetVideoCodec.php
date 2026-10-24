@@ -8,6 +8,14 @@ enum TargetVideoCodec: string
 
     case AV1 = 'av1';
 
+    public function softwareEncoder(): VideoEncoder
+    {
+        return match ($this) {
+            self::HEVC => VideoEncoder::LIBX265,
+            self::AV1 => VideoEncoder::LIBSVTAV1,
+        };
+    }
+
     public function label(): string
     {
         return match ($this) {
