@@ -21,16 +21,16 @@ class EncoderDetector
      */
     public const string CACHE_KEY = 'encoding.detection';
 
-    public function __construct(private Ffmpeg $ffmpeg, private BackendCheck $backends) {}
+    public function __construct(private Ffmpeg $ffmpeg, private BackendCheck $backends, private AccelerationPreference $preference) {}
 
     public function current(): Detection
     {
-        return Detection::fromArray(Cache::rememberForever(self::CACHE_KEY, fn (): array => $this->detect()->toArray()));
+        return Detection::fromArray(Cache::rememberForever(self::CACHE_KEY, fn (): array => $this->inspect($this->preference->saved(), $this->preference->savedDevice())->toArray()));
     }
 
     public function refresh(): Detection
     {
-        return $this->store($this->detect());
+        return $this->store($this->inspect($this->preference->saved(), $this->preference->savedDevice()));
     }
 
     public function store(Detection $detection): Detection
@@ -40,7 +40,7 @@ class EncoderDetector
         return $detection;
     }
 
-    private function detect(): Detection
+    public function inspect(string $preference, ?string $device): Detection
     {
         $detectedAt = now()->toImmutable();
         $version = null;
@@ -65,7 +65,7 @@ class EncoderDetector
                 return new Detection($detectedAt, $version, 'No video or audio encoders were detected. Check the FFmpeg installation and try refreshing detection.');
             }
 
-            [$backends, $accelerationError] = $this->detectBackends($encoders);
+            [$backends, $accelerationError] = $this->detectBackends($encoders, $preference, $device);
 
             return new Detection($detectedAt, $version, null, $encoders, $backends, $accelerationError);
         } catch (ProcessTimedOutException) {
@@ -86,7 +86,7 @@ class EncoderDetector
      * @param  list<Encoder>  $encoders
      * @return array{array<string, Backend>, ?string}
      */
-    private function detectBackends(array $encoders): array
+    private function detectBackends(array $encoders, string $preference, ?string $device): array
     {
         $names = [];
         $error = null;
@@ -116,7 +116,7 @@ class EncoderDetector
         $backends = [];
 
         foreach ($names as $name) {
-            $backends[$name] = $this->backends->check($name, $encoders);
+            $backends[$name] = $this->backends->check($name, $encoders, $name === $preference ? $device : null);
         }
 
         return [$backends, $error];

@@ -27,6 +27,20 @@ use Symfony\Component\Process\Process;
 
 use function Pest\Laravel\mock;
 
+it('isolates quality-control workers and gives their reservation enough shutdown time', function (): void {
+    $limit = app(WorkerLimit::class);
+    $limit->save(3, WorkerPool::QUALITY_CONTROL);
+    $quality = ProvisioningPlan::get('test-master')->optionsFor('*', WorkerPool::QUALITY_CONTROL->supervisor());
+    $timeout = config('quality_control.timeout_seconds');
+    expect($quality->queue)->toBe('quality-control')
+        ->and($quality->connection)->toBe('redis-quality-control')
+        ->and($quality->timeout)->toBe($timeout + 120)
+        ->and(config('queue.connections.redis-quality-control.retry_after'))->toBe($timeout + 180)
+        ->and($limit->get(WorkerPool::QUALITY_CONTROL))->toBe(3)
+        ->and($limit->get(WorkerPool::TRANSCODES))->toBe(1)
+        ->and($limit->get())->toBe(1);
+});
+
 beforeEach(function (): void {
     mock(MetricsRepository::class)->shouldReceive('acquireWaitTimeMonitorLock')->andReturn(false);
 });

@@ -6,6 +6,7 @@ use App\Encoding\Data\Detection;
 use App\Encoding\Enums\EncoderType;
 use App\Ffmpeg\Enums\HardwareBackend;
 use App\Models\Setting;
+use Illuminate\Support\Facades\DB;
 
 class AccelerationPreference
 {
@@ -15,6 +16,8 @@ class AccelerationPreference
 
     private const string SETTING = 'hardware_acceleration';
 
+    private const string DEVICE_SETTING = 'hardware_acceleration_device';
+
     public function saved(): string
     {
         $value = Setting::valueOf(self::SETTING);
@@ -22,9 +25,23 @@ class AccelerationPreference
         return is_string($value) ? $value : self::AUTOMATIC;
     }
 
-    public function save(string $preference): void
+    public function savedDevice(): ?string
     {
-        Setting::put(self::SETTING, $preference);
+        $value = Setting::valueOf(self::DEVICE_SETTING);
+
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    public function save(string $preference, ?string $device = null): void
+    {
+        DB::transaction(function () use ($preference, $device): void {
+            Setting::put(self::SETTING, $preference);
+            if ($device !== null && $device !== '' && HardwareBackend::tryFrom($preference)?->devicePattern() !== null) {
+                Setting::put(self::DEVICE_SETTING, $device);
+            } else {
+                Setting::query()->global()->where('key', self::DEVICE_SETTING)->delete();
+            }
+        });
     }
 
     /** @return list<string> */
@@ -34,7 +51,7 @@ class AccelerationPreference
     }
 
     /** @return list<HardwareBackend> */
-    public function availableBackends(Detection $detection, ?string $codec = null): array
+    public function availableBackends(Detection $detection, ?string $codec = null, bool $includeUnavailable = false): array
     {
         if ($detection->error !== null) {
             return [];
@@ -44,7 +61,7 @@ class AccelerationPreference
 
         foreach ($detection->encoders as $encoder) {
             if ($encoder->type === EncoderType::VIDEO && $encoder->backend !== null && ($codec === null || $encoder->codec === $codec)
-                && $detection->isBackendAvailable($encoder->backend->value)) {
+                && ($includeUnavailable || $detection->isBackendAvailable($encoder->backend->value))) {
                 $available[$encoder->backend->value] = $encoder->backend;
             }
         }
@@ -63,9 +80,14 @@ class AccelerationPreference
         $preference = $this->saved();
 
         if ($preference === self::AUTOMATIC) {
-            return $available[0] ?? null;
+            return array_find($available, fn (HardwareBackend $backend): bool => ($detection->backends[$backend->value]->device ?? null) === null);
         }
 
-        return in_array(HardwareBackend::tryFrom($preference), $available, true) ? HardwareBackend::from($preference) : null;
+        if (! in_array(HardwareBackend::tryFrom($preference), $available, true)
+            || ($detection->backends[$preference]->device ?? null) !== $this->savedDevice()) {
+            return null;
+        }
+
+        return HardwareBackend::from($preference);
     }
 }

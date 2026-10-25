@@ -18,13 +18,17 @@ use App\Models\MediaProbe;
 use App\Models\MediaStream;
 use App\Tasks\Enums\TaskStatus;
 use App\Transcoding\Actions\BuildTranscodePlan;
+use App\Transcoding\EncoderQuality;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\TranscodePlan;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Process;
 
-/** @param list<string> $names */
-function planEncoders(array $names = ['libx265', 'libsvtav1', 'aac', 'libopus']): void
+/**
+ * @param  list<string>  $names
+ * @param  array<string, string>  $devices
+ */
+function planEncoders(array $names = ['libx265', 'libsvtav1', 'aac', 'libopus'], array $devices = []): void
 {
     $encoders = [];
     $backends = [];
@@ -33,7 +37,7 @@ function planEncoders(array $names = ['libx265', 'libsvtav1', 'aac', 'libopus'])
         $backend = $video?->backend();
         $encoders[] = new Encoder($name, $video?->targetCodec()->value ?? $name, $video === null ? EncoderType::AUDIO : EncoderType::VIDEO, $name, $backend);
         if ($backend !== null) {
-            $backends[$backend->value] = new Backend($backend->value, $backend->label(), 1, true, 'Available');
+            $backends[$backend->value] = new Backend($backend->value, $backend->label(), 1, true, 'Available', $devices[$backend->value] ?? null);
         }
     }
     app(EncoderDetector::class)->store(new Detection(now()->toImmutable(), version: '7.1', encoders: $encoders, backends: $backends));
@@ -153,6 +157,39 @@ it('selects available hardware and falls back to the same codec software encoder
     ['nvenc', TargetVideoCodec::AV1, VideoEncoder::LIBSVTAV1], ['amf', TargetVideoCodec::AV1, VideoEncoder::LIBSVTAV1],
 ]);
 
+it('uses the saved hardware device in the transcode command', function (string $backend, string $device, string $arguments): void {
+    planEncoders(['libx265', 'hevc_'.$backend], [$backend => $device]);
+    app(AccelerationPreference::class)->save($backend, $device);
+
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(), new MediaSettings);
+
+    expect($plan)->toBeInstanceOf(TranscodePlan::class);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect($plan->encoder->value)->toBe('hevc_'.$backend)
+        ->and(implode(' ', $plan->arguments))->toContain($arguments);
+})->with([
+    ['nvenc', '0', '-gpu 0'], ['nvenc', '1', '-gpu 1'],
+    ['qsv', '/dev/dri/renderD129', '-init_hw_device qsv=hw:hw,child_device=/dev/dri/renderD129'],
+    ['vaapi', '/dev/dri/renderD129', '-init_hw_device vaapi=hw:/dev/dri/renderD129 -filter_hw_device hw'],
+    ['qsv', '1', '-init_hw_device qsv=hw:hw,child_device=1'],
+]);
+
+it('does not use capabilities checked on a different device for transcoding', function (): void {
+    planEncoders(['libx265', 'hevc_nvenc'], ['nvenc' => '0']);
+    app(AccelerationPreference::class)->save('nvenc', '1');
+
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(), new MediaSettings);
+
+    expect($plan)->toBeInstanceOf(TranscodePlan::class);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect($plan->encoder)->toBe(VideoEncoder::LIBX265)
+        ->and($plan->arguments)->not->toContain('-gpu');
+});
+
 it('fails when a required video or converted audio encoder is missing', function (array $encoders, MediaSettings $settings, string $missing): void {
     planEncoders(array_values($encoders));
     $file = planningFile([['stream_index' => 1, 'codec_type' => 'audio', 'codec_name' => 'ac3', 'channels' => 6]]);
@@ -251,7 +288,7 @@ it('converts mastering display rational values into x265 signaling', function ()
     expect(implode(' ', $plan->arguments))->toContain('-x265-params master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,50):max-cll=1000,400');
 });
 
-it('preserves HDR10 through native SVT metadata forwarding only on supported FFmpeg versions', function (string $version, bool $supported): void {
+it('preserves HDR10 through native SVT metadata forwarding without guessing capabilities from version strings', function (string $version): void {
     planEncoders();
     $detection = app(EncoderDetector::class)->current();
     app(EncoderDetector::class)->store(new Detection($detection->detectedAt, $version, encoders: $detection->encoders));
@@ -260,22 +297,14 @@ it('preserves HDR10 through native SVT metadata forwarding only on supported FFm
 
     $plan = app(BuildTranscodePlan::class)->handle($file, new MediaSettings(videoCodec: TargetVideoCodec::AV1));
 
-    if ($supported) {
-        expect($plan)->toBeInstanceOf(TranscodePlan::class);
-        if (! $plan instanceof TranscodePlan) {
-            throw new RuntimeException($plan->message);
-        }
-        expect($plan->encoder)->toBe(VideoEncoder::LIBSVTAV1);
-        expect(implode(' ', $plan->arguments))->toContain('-color_trc:v:0 smpte2084');
-        expect($plan->arguments)->not->toContain('-filter:v:0', '-x265-params');
-    } else {
-        expect($plan)->toBeInstanceOf(SkippedTranscode::class);
-        if (! $plan instanceof SkippedTranscode) {
-            throw new RuntimeException('Expected an unsupported mastering skip.');
-        }
-        expect($plan->reason)->toBe('unsupported_hdr_mastering');
+    expect($plan)->toBeInstanceOf(TranscodePlan::class);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
     }
-})->with([['7.1', true], ['8.0.1', true], ['6.1', false], ['N-unknown', false]]);
+    expect($plan->encoder)->toBe(VideoEncoder::LIBSVTAV1);
+    expect(implode(' ', $plan->arguments))->toContain('-color_trc:v:0 smpte2084');
+    expect($plan->arguments)->not->toContain('-filter:v:0', '-x265-params');
+})->with(['9.0.2', '9.0.2-custom', 'N-unknown']);
 
 it('keeps copied audio channels even when stereo conversion is configured', function (): void {
     planEncoders();
@@ -377,3 +406,33 @@ it('forbids FFmpeg silently substituting a lower bit depth or chroma format', fu
     }
     expect(implode(' ', $plan->arguments))->toContain('-pix_fmt:v:0 +yuv444p12le');
 });
+
+it('uses identical quality and video arguments for samples and the full encode', function (): void {
+    planEncoders();
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(), new MediaSettings);
+    expect($plan)->toBeInstanceOf(TranscodePlan::class);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    $chosen = $plan->withQuality(new EncoderQuality(VideoEncoder::LIBX265, 33));
+    expect(implode(' ', $chosen->arguments))->toContain('-crf 33')
+        ->and(implode(' ', $chosen->sampleArguments('/cached/reference.mkv')))->toContain('-i /cached/reference.mkv', '-crf 33', '-pix_fmt:v:0 +yuv420p');
+});
+
+it('keeps decoding on the saved hardware device through quality selection while cached FFV1 stays on CPU', function (string $backend, string $device, string $api): void {
+    planEncoders(['libx265', 'hevc_'.$backend], [$backend => $device]);
+    app(AccelerationPreference::class)->save($backend, $device);
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(), new MediaSettings);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    $chosen = $plan->withQuality(new EncoderQuality($plan->encoder, 30));
+    expect(array_count_values($chosen->arguments)['-init_hw_device'] ?? 0)->toBe(1);
+    expect($chosen->decoding?->toArray())->toBe(['backend' => $backend, 'device' => $device])
+        ->and(implode(' ', $chosen->arguments))->toContain('-hwaccel:0 '.$api, '-hwaccel_output_format:0 nv12')
+        ->and($chosen->sampleArguments('/reference.mkv'))->not->toContain('-hwaccel:0');
+})->with([
+    ['vaapi', '/dev/dri/renderD129', 'vaapi'],
+    ['qsv', '/dev/dri/renderD129', 'qsv'],
+    ['nvenc', '1', 'cuda'],
+]);

@@ -20,3 +20,11 @@ it('collects static frame metadata and rejects changes later in the source', fun
     $inspection->finish();
     expect($inspection->unsupported())->toBeTrue();
 });
+
+it('treats equivalent frame and container HDR rationals as the same mastering metadata', function (): void {
+    $inspection = new HdrInspection;
+    $inspection->push("frames.frame.0.side_data_list.side_data.0.side_data_type=\"Mastering display metadata\"\nframes.frame.0.side_data_list.side_data.0.red_x=\"34000/50000\"\n");
+    $inspection->push("streams.stream.0.side_data_list.side_data.0.side_data_type=\"Mastering display metadata\"\nstreams.stream.0.side_data_list.side_data.0.red_x=\"17/25\"\n");
+    $inspection->finish();
+    expect($inspection->unsupported())->toBeFalse();
+});

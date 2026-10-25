@@ -8,7 +8,6 @@ use App\Library\DirectoryBrowser;
 use App\Library\LibraryPathResolver;
 use App\Livewire\Forms\LibraryForm;
 use App\Models\Library;
-use App\Transcoding\Actions\RequestTranscodeRun;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -84,12 +83,6 @@ class Libraries extends Component
     {
         $count = $requests->handle(Library::query()->findOrFail($id));
         $this->toast()->info($count === 0 ? 'All folders are already queued or scanning.' : 'Queued '.$count.' folder scans.')->send();
-    }
-
-    public function transcode(int $id, RequestTranscodeRun $requests): void
-    {
-        $requests->handle(Library::query()->findOrFail($id));
-        $this->toast()->info('Library transcode requested.', 'Follow its progress on the Queue page.')->send();
     }
 
     public function browse(DirectoryBrowser $browser): void

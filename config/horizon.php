@@ -211,6 +211,18 @@ return [
             'timeout' => 1830,
             'nice' => 0,
         ],
+        'supervisor-quality-control' => [
+            'connection' => 'redis-quality-control',
+            'queue' => [WorkQueue::QUALITY_CONTROL->value],
+            'balance' => false,
+            'maxProcesses' => (int) env('HORIZON_QUALITY_CONTROL_WORKERS', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => max(1, (int) env('QUALITY_CONTROL_TIMEOUT_SECONDS', 86400)) + 120,
+            'nice' => 0,
+        ],
         'supervisor-transcodes' => [
             'connection' => 'redis-transcodes',
             'queue' => [WorkQueue::TRANSCODES->value],
@@ -226,7 +238,7 @@ return [
     ],
 
     'environments' => [
-        '*' => ['supervisor-1' => [], 'supervisor-transcodes' => []],
+        '*' => ['supervisor-1' => [], 'supervisor-transcodes' => [], 'supervisor-quality-control' => []],
     ],
 
     /*

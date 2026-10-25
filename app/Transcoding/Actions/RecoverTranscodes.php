@@ -46,6 +46,7 @@ class RecoverTranscodes
             $item->update([
                 'status' => $cancelled ? TaskStatus::CANCELLED : TaskStatus::QUEUED, 'request_token' => $token,
                 'attempt_token' => null, 'execution_deadline_at' => null, 'started_at' => null, 'finished_at' => $cancelled ? now() : null,
+                'phase' => null, 'optimization' => null,
             ]);
             if (! $cancelled) {
                 $this->bus->dispatch(new TranscodeMediaFile($item->id, $token));

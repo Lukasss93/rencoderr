@@ -67,6 +67,15 @@ class StagingArea
         return $directory.'/output.mkv';
     }
 
+    public function ensureSpace(string $directory, int $estimatedBytes): void
+    {
+        $available = disk_free_space($directory);
+        $reserve = max(0, (int) config('transcoding.staging_reserve_bytes', 268435456));
+        if ($estimatedBytes < 1 || $available === false || $available - $reserve < $estimatedBytes * 1.1) {
+            throw new RuntimeException('Insufficient free staging space for the estimated full encode and reserve.');
+        }
+    }
+
     public function clean(int $id, string $attempt): void
     {
         $disk = $this->disk();

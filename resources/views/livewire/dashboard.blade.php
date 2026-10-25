@@ -1,5 +1,7 @@
 <div class="space-y-8" wire:poll.5s>
-    <x-page-header title="Dashboard" description="An overview of your media library and its storage." />
+    <x-page-header title="Dashboard" description="An overview of your media library and its storage.">
+        <x-button text="View queue" icon="queue-list" flat :href="route('queue.index')" wire:navigate />
+    </x-page-header>
 
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         @foreach (['present' => 'Present files', 'missing' => 'Missing files', 'excluded' => 'Excluded files'] as $statusKey => $label)
@@ -25,16 +27,39 @@
         <x-select.native label="Availability" wire:model.live="status" :options="$statusOptions" />
     </div>
 
+    <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm text-gray-500 dark:text-gray-400">
+            @if ($selectedLibrary)
+                <p>Transcode all eligible files in <strong>{{ $selectedLibrary->name }}</strong> using its saved media settings. Search and availability filters do not limit the run.</p>
+                @if ($activeRuns->has($selectedLibrary->id))
+                    <p>A transcode run is already active for this library. Follow its progress on the Queue page.</p>
+                @endif
+            @else
+                <p>Select a library to start a library transcode, or transcode an individual file below.</p>
+            @endif
+        </div>
+        <x-button text="Transcode library" icon="film" wire:click="transcodeLibrary" loading="transcodeLibrary"
+            :disabled="! $selectedLibrary || $activeRuns->has($selectedLibrary->id)" />
+    </div>
+    @error('library')
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
+    @enderror
+    @error('transcode')
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
+    @enderror
+
     <x-table :headers="[
         ['index' => 'relative_path', 'label' => 'File'],
         ['index' => 'library', 'label' => 'Library / root'],
         ['index' => 'size_bytes', 'label' => 'Size'],
         ['index' => 'filesystem_modified_at', 'label' => 'Modified (UTC)'],
         ['index' => 'status', 'label' => 'Availability'],
+        ['index' => 'processing', 'label' => 'Processing'],
+        ['index' => 'action', 'label' => 'Actions'],
     ]" :rows="$files" paginate>
         @interact('column_relative_path', $file)
             <div class="max-w-sm whitespace-normal">
-                <p class="font-medium text-gray-900 dark:text-gray-100">{{ basename($file->relative_path) }}</p>
+                <a href="{{ route('media.show', $file) }}" wire:navigate class="font-medium text-primary-600 hover:underline dark:text-primary-400">{{ basename($file->relative_path) }}</a>
                 <p class="break-all text-xs">{{ $file->relative_path }}</p>
             </div>
         @endinteract
@@ -56,6 +81,24 @@
                 \App\Library\Enums\MediaFileStatus::MISSING => 'red',
                 \App\Library\Enums\MediaFileStatus::EXCLUDED => 'gray',
             }" />
+        @endinteract
+        @interact('column_processing', $file)
+            <div class="flex flex-col items-start gap-2">
+                <x-media.probe-status :file="$file" />
+                <x-media.transcode-status :transcode="$file->latestTranscode" />
+                @if ($file->latestTranscode?->progress_percent !== null)
+                    <span class="text-xs">{{ number_format($file->latestTranscode->progress_percent, 1) }}%</span>
+                @endif
+            </div>
+        @endinteract
+        @interact('column_action', $file, $activeRuns)
+            @php($reason = $file->transcodeUnavailableReason() ?? ($activeRuns->has($file->libraryPath->library_id) ? 'This library already has an active transcode run.' : null))
+            <div class="max-w-xs space-y-2 whitespace-normal">
+                <x-button text="Transcode" icon="film" sm wire:click="transcodeFile({{ $file->id }})" loading="transcodeFile" :disabled="$reason !== null" />
+                @if ($reason)
+                    <p class="text-xs">{{ $reason }}</p>
+                @endif
+            </div>
         @endinteract
         <x-slot:empty>
             No video files match these filters. Add a library or run a scan to discover your media.

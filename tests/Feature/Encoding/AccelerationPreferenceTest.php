@@ -87,3 +87,14 @@ it('uses software when explicitly selected even when hardware is available', fun
 
     expect(app(AccelerationPreference::class)->resolve(detectPreferenceHardware()))->toBeNull();
 });
+
+it('does not reuse an explicitly selected device after switching to automatic', function (): void {
+    $preference = app(AccelerationPreference::class);
+    $preference->save('nvenc', '1');
+    $detection = detectPreferenceHardware();
+
+    $preference->save('auto');
+
+    expect($preference->savedDevice())->toBeNull()
+        ->and($preference->resolve($detection))->toBe(HardwareBackend::QSV);
+});

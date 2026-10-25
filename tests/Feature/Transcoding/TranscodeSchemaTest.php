@@ -46,6 +46,6 @@ it('keeps identity then status then data then timestamps in transcode tables', f
         'status', 'source_path', 'source_size_bytes', 'encoder', 'arguments',
         'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds',
         'diagnostic_tail', 'error', 'skip_reason', 'source_modified_at',
-        'execution_deadline_at', 'started_at', 'finished_at', 'created_at', 'updated_at',
+        'execution_deadline_at', 'started_at', 'finished_at', 'created_at', 'updated_at', 'phase', 'optimization',
     ]);
 });

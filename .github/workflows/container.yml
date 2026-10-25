@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -54,10 +54,18 @@ jobs:
           coverage: none
       - name: Install test dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
-      - name: Test container lifecycle
+      - name: Test quality control with production FFmpeg
+        run: |
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --entrypoint php --workdir /workspace --volume "$PWD:/workspace" \
+            --env QUALITY_CONTROL_NATIVE_TESTS=1 --env APP_ENV=testing \
+            --env DB_CONNECTION=sqlite --env DB_DATABASE=:memory: --env CACHE_STORE=array \
+            --env QUEUE_CONNECTION=sync --env SESSION_DRIVER=array --env LOG_CHANNEL=single \
+            rencoderr:ci artisan test --compact tests/Feature/QualityControl/NativeQualityCheckTest.php
+      - name: Test media runtime and container lifecycle
         env:
           CONTAINER_IMAGE: rencoderr:ci
-        run: vendor/bin/pest tests/Unit/ContainerRuntimeTest.php tests/Unit/ContainerKeyTest.php
+        run: vendor/bin/pest tests/Unit/ContainerMediaTest.php tests/Unit/ContainerRuntimeTest.php tests/Unit/ContainerKeyTest.php
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         uses: docker/login-action@v4

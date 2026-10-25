@@ -33,7 +33,18 @@
         </form>
     </x-card>
 
-    @foreach ([['Worker status', $savedLimit, $status], ['Transcode worker status', $transcodeSavedLimit, $transcodeStatus]] as [$heading, $poolLimit, $poolStatus])
+    <x-card header="Quality-control workers">
+        <form wire:submit="saveQuality" class="space-y-4">
+            <x-input label="Maximum quality-control workers" type="number" min="1" step="1" wire:model="qualityMaxWorkers"
+                hint="Quality checks use a separate CPU worker pool. This limit does not change encoding, scanning or probing capacity." />
+            <p class="text-sm text-gray-500 dark:text-gray-400">Changes apply automatically. Active checks finish before excess workers stop.</p>
+            <div class="flex justify-end">
+                <x-button text="Save" submit loading="saveQuality" />
+            </div>
+        </form>
+    </x-card>
+
+    @foreach ([['Worker status', $savedLimit, $status], ['Transcode worker status', $transcodeSavedLimit, $transcodeStatus], ['Quality-control worker status', $qualitySavedLimit, $qualityStatus]] as [$heading, $poolLimit, $poolStatus])
         <div wire:key="{{ $heading }}">
         <x-card :header="$heading">
             <div class="space-y-4" role="status">

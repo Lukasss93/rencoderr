@@ -1,6 +1,5 @@
 <?php
 
-use App\Jobs\QueueLibraryTranscodes;
 use App\Jobs\ScanLibraryPath;
 use App\Library\DirectoryBrowser;
 use App\Library\LibraryPathResolver;
@@ -8,7 +7,6 @@ use App\Livewire\Settings\Libraries;
 use App\Models\Library;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
-use App\Models\TranscodeRun;
 use App\Models\User;
 use App\Tasks\Enums\TaskStatus;
 use Illuminate\Support\Facades\Auth;
@@ -361,42 +359,7 @@ it('rejects interval conversion that exceeds the stored minute range', function 
     assertDatabaseCount('libraries', 0);
 });
 
-it('requests a library transcode through the authenticated settings page', function (): void {
-    Queue::fake();
-    $library = Library::factory()->create(['name' => 'Movie archive']);
-    actingAs(User::factory()->create());
-
-    Livewire::test(Libraries::class)->assertSee('Transcode library')->call('transcode', $library->id)
-        ->assertHasNoErrors()->assertDispatched('ts-ui:toast', title: 'Library transcode requested.');
-
-    expect(TranscodeRun::query()->where('library_id', $library->id)->firstOrFail()->library_name)->toBe('Movie archive');
-    Queue::assertPushed(QueueLibraryTranscodes::class);
-});
-
-it('rejects library transcodes after the authenticated session expires', function (): void {
-    Queue::fake();
-    $library = Library::factory()->create();
-    actingAs(User::factory()->create());
-    $page = get(route('settings.libraries'))->assertOk();
-    Auth::logout();
-    session()->invalidate();
-    Auth::forgetGuards();
-
-    postJson(Livewire::getUpdateUri(), livewireUpdatePayload($page, calls: [
-        ['method' => 'transcode', 'params' => [$library->id]],
-    ]), ['X-Livewire' => 'true'])->assertUnauthorized();
-
-    expect(TranscodeRun::query()->count())->toBe(0);
-    Queue::assertNothingPushed();
-});
-
-it('keeps repeated library transcode requests on the existing active run', function (): void {
-    Queue::fake();
-    $library = Library::factory()->create();
-    actingAs(User::factory()->create());
-
-    Livewire::test(Libraries::class)->call('transcode', $library->id)->call('transcode', $library->id)->assertHasNoErrors();
-
-    expect(TranscodeRun::query()->where('library_id', $library->id)->count())->toBe(1);
-    Queue::assertPushed(QueueLibraryTranscodes::class, 1);
+it('keeps transcode launch controls out of library settings', function (): void {
+    Library::factory()->create();
+    Livewire::test(Libraries::class)->assertDontSee('Transcode library');
 });

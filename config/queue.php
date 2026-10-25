@@ -82,6 +82,15 @@ return [
             'after_commit' => false,
         ],
 
+        'redis-quality-control' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'quality-control',
+            'retry_after' => max(1, (int) env('QUALITY_CONTROL_TIMEOUT_SECONDS', 86400)) + 180,
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

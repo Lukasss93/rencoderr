@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Library\Actions\RecoverScans;
 use App\Probe\Actions\RecoverProbes;
+use App\QualityControl\Actions\RecoverQualityChecks;
 use App\Transcoding\Actions\RecoverTranscodes;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -11,15 +12,16 @@ use Illuminate\Console\Command;
 use Throwable;
 
 #[Signature('tasks:recover')]
-#[Description('Requeue interrupted scans, probes and transcodes during exclusive startup, before starting workers')]
+#[Description('Requeue interrupted scans, probes, transcodes and quality checks during exclusive startup, before starting workers')]
 class RecoverTasks extends Command
 {
-    public function handle(RecoverScans $scans, RecoverProbes $probes, RecoverTranscodes $transcodes): int
+    public function handle(RecoverScans $scans, RecoverProbes $probes, RecoverTranscodes $transcodes, RecoverQualityChecks $quality): int
     {
         try {
             $this->info('Recovered '.$scans->handle().' folder scans.');
             $this->info('Recovered '.$probes->handle().' media probes.');
             $this->info('Recovered '.$transcodes->handle().' media transcodes.');
+            $this->info('Recovered '.$quality->handle().' quality checks.');
         } catch (Throwable $exception) {
             report($exception);
             $this->error('Recovery failed. Startup must be retried before starting workers.');

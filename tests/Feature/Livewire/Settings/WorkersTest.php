@@ -131,3 +131,12 @@ it('rejects invalid transcode limits without changing either saved pool', functi
         ->assertHasErrors('transcodeMaxWorkers')->assertNotDispatched('ts-ui:toast');
     expect($limit->get())->toBe(4)->and(Setting::valueOf('transcode_max_workers'))->toBeNull();
 })->with(['', '0', '-1', '1.5', 'many', '999999999999999999999']);
+
+it('saves quality-control capacity independently and validates its input', function (): void {
+    Livewire::test(Workers::class)->assertSet('qualityMaxWorkers', '1')
+        ->set('qualityMaxWorkers', '0')->call('saveQuality')->assertHasErrors('qualityMaxWorkers')
+        ->set('qualityMaxWorkers', '2')->set('transcodeMaxWorkers', '9')->call('saveQuality')->assertHasNoErrors()
+        ->assertSee('Quality-control workers');
+    expect(app(WorkerLimit::class)->get(WorkerPool::QUALITY_CONTROL))->toBe(2)
+        ->and(app(WorkerLimit::class)->get(WorkerPool::TRANSCODES))->toBe(1);
+});

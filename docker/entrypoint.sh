@@ -34,7 +34,7 @@ for device in /dev/dri/* /dev/nvidia*; do
     usermod --append --groups "$device_gid" rencoderr
 done
 
-mkdir -p /config/database /config/valkey /config/storage/{app/private,app/public,framework/cache/data,framework/cache/locks,framework/sessions,framework/views,logs} /run/rencoderr /app/bootstrap/cache
+mkdir -p /config/database /config/valkey /config/storage/{app/private,app/public,cache,framework/cache/data,framework/cache/locks,framework/sessions,framework/views,logs} /run/rencoderr /app/bootstrap/cache
 rm -f /run/rencoderr/ready /run/rencoderr/failed /run/rencoderr/octane.json /app/bootstrap/cache/config.php /app/bootstrap/cache/routes-v7.php
 rm -f /run/rencoderr/application.log
 mkfifo /run/rencoderr/application.log

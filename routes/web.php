@@ -3,6 +3,7 @@
 use App\Http\Controllers\LogoutController;
 use App\Livewire\Auth\Login;
 use App\Livewire\Dashboard;
+use App\Livewire\Library\ShowMedia;
 use App\Livewire\Queue;
 use App\Livewire\Settings\Libraries;
 use App\Livewire\Settings\LibraryMedia;
@@ -22,6 +23,7 @@ Route::post('/logout', LogoutController::class)
 
 Route::middleware('auth')->group(function (): void {
     Route::livewire('/', Dashboard::class)->name('home');
+    Route::livewire('/media/{mediaFile}', ShowMedia::class)->name('media.show');
     Route::livewire('/queue', Queue::class)->name('queue.index');
     Route::redirect('/settings', '/settings/status')->name('settings.index');
     Route::livewire('/settings/status', Status::class)->name('settings.status');

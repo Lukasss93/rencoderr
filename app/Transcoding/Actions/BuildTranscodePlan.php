@@ -9,6 +9,7 @@ use App\Encoding\EncoderDetector;
 use App\Encoding\Enums\AudioChannels;
 use App\Encoding\Enums\AudioCodec;
 use App\Encoding\Enums\VideoEncoder;
+use App\Ffmpeg\HardwareDecoding;
 use App\Library\MediaFilePath;
 use App\Models\MediaFile;
 use App\Models\MediaStream;
@@ -64,14 +65,20 @@ class BuildTranscodePlan
         $metadata = is_array($metadata) ? $metadata : [];
         $raw = $this->rawStream($metadata, $video->stream_index);
         $detection = $this->detector->current();
-        $options = $this->videoOptions->handle($video, $raw, $settings, $detection->version);
+        $options = $this->videoOptions->handle($video, $raw, $settings);
 
         if ($options instanceof SkippedTranscode) {
             return $options;
         }
 
         $encoder = $this->encoder($detection, $settings, $options['software_only']);
-        $arguments = ['-nostdin', '-hide_banner', '-noautorotate', ...($encoder->backend()?->encodingDeviceArguments() ?? []), '-i', $path,
+        $device = $detection->backends[$encoder->backend()->value ?? '']->device ?? null;
+        $encodingDevice = $encoder->backend()?->encodingDeviceArguments($device) ?? [];
+        $decoding = new HardwareDecoding($encoder->backend(), $device);
+        $decodeDevice = $encodingDevice !== [] ? 'hw' : 'decode';
+        $decodeInput = $decoding->inputArguments(['index' => $video->stream_index, 'codec_name' => $video->codec_name, 'pix_fmt' => $video->pixel_format], $decodeDevice);
+        $inputArguments = ['-nostdin', '-hide_banner', '-noautorotate', ...$encodingDevice];
+        $arguments = [...$inputArguments, ...($decodeInput !== [] && $decodeDevice === 'decode' ? $decoding->deviceArguments() : []), ...$decodeInput, '-i', $path,
             '-map_metadata', '0', '-map_chapters', '0', '-c', 'copy'];
         $decisions = [];
         $output = 0;
@@ -168,7 +175,9 @@ class BuildTranscodePlan
             $format = $video->pixel_format === 'yuv420p10le' ? 'p010le' : 'nv12';
             $filter = implode(',', array_filter([$filter, 'scale=iw:ih:flags=bitexact', 'format='.$format, $encoder->backend()->uploadFilter()]));
         }
-        $arguments = [...$arguments, ...$settings->videoQuality->arguments($encoder), ...$settings->encodingSpeed->arguments($encoder),
+        $prefix = $arguments;
+        $arguments = [...$settings->encodingSpeed->arguments($encoder),
+            ...($encoder->backend()?->hardwareOnlyArguments($device) ?? []),
             '-fps_mode:v:0', 'passthrough', '-enc_time_base:v:0', 'demux', '-pix_fmt:v:0', '+'.$pixelFormat,
             ...$options['arguments']];
         if ($filter !== '') {
@@ -176,7 +185,8 @@ class BuildTranscodePlan
         }
         $arguments = [...$arguments, '-f', 'matroska'];
 
-        return new TranscodePlan($encoder, $settings, $path, $file->size_bytes, $file->filesystem_modified_at, $arguments, $decisions);
+        return new TranscodePlan($encoder, $settings, $path, $file->size_bytes, $file->filesystem_modified_at,
+            [...$prefix, ...$settings->videoQuality->arguments($encoder), ...$arguments], $decisions, $prefix, $inputArguments, $arguments, decoding: $decoding);
     }
 
     private function encoder(Detection $detection, MediaSettings $settings, bool $softwareOnly): VideoEncoder

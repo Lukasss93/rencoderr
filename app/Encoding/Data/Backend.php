@@ -5,7 +5,7 @@ namespace App\Encoding\Data;
 /**
  * The name can be one HardwareBackend does not know yet.
  *
- * @phpstan-type BackendData array{name: string, label: string, encoders: int, available: bool, message: string}
+ * @phpstan-type BackendData array{name: string, label: string, encoders: int, available: bool, message: string, device: ?string}
  */
 readonly class Backend
 {
@@ -15,17 +15,18 @@ readonly class Backend
         public int $encoders,
         public bool $available,
         public string $message,
+        public ?string $device = null,
     ) {}
 
     public function markAvailable(string $message): self
     {
-        return new self($this->name, $this->label, $this->encoders, true, $message);
+        return new self($this->name, $this->label, $this->encoders, true, $message, $this->device);
     }
 
     /** @return BackendData */
     public function toArray(): array
     {
-        return ['name' => $this->name, 'label' => $this->label, 'encoders' => $this->encoders, 'available' => $this->available, 'message' => $this->message];
+        return ['name' => $this->name, 'label' => $this->label, 'encoders' => $this->encoders, 'available' => $this->available, 'message' => $this->message, 'device' => $this->device];
     }
 
     /** @param BackendData $data */

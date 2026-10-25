@@ -98,23 +98,23 @@ it('rejects invalid values without changing saved settings', function (string $f
 ]);
 
 it('applies video presets only to draft video fields', function (string $preset, string $codec): void {
-    $component = Livewire::test(Media::class)->set('form.values.video_quality', 'smaller')
+    $component = Livewire::test(Media::class)->set('form.values.video_quality', 'high')
         ->set('form.values.encoding_speed', 'fast')->set('form.values.hdr_mode', 'skip')
         ->set('form.values.audio_codec', 'aac')->set('form.values.skip_video_codecs', ['av1']);
     $before = $component->get('form.values');
 
     $component->set('form.selectedPreset', $preset)->call('applyPreset')->assertHasNoErrors()
         ->assertSet('form.values', array_replace($before, [
-            'video_codec' => $codec, 'video_quality' => 'high', 'encoding_speed' => 'balanced',
+            'video_codec' => $codec, 'video_quality' => 'smaller', 'encoding_speed' => 'slow',
         ]));
     expect(Setting::query()->count())->toBe(0);
 
-    $component->set('form.values.encoding_speed', 'slow')->call('save')->assertHasNoErrors();
-    expect(Setting::valueOf('media.encoding_speed'))->toBe('slow');
-})->with(['HEVC' => ['hevc_high_quality', 'hevc'], 'AV1' => ['av1_high_quality', 'av1']]);
+    $component->set('form.values.encoding_speed', 'balanced')->call('save')->assertHasNoErrors();
+    expect(Setting::valueOf('media.encoding_speed'))->toBe('balanced');
+})->with(['HEVC' => ['hevc_save_storage', 'hevc'], 'AV1' => ['av1_save_storage', 'av1']]);
 
 it('ignores unapplied presets and rejects unknown presets without changing the draft', function (): void {
-    $component = Livewire::test(Media::class)->set('form.selectedPreset', 'av1_high_quality')->call('save');
+    $component = Livewire::test(Media::class)->set('form.selectedPreset', 'av1_save_storage')->call('save');
     expect(Setting::valueOf('media.video_codec'))->toBe('hevc');
     $before = $component->get('form.values');
 

@@ -61,12 +61,37 @@ class HdrInspection
         return array_values($this->static);
     }
 
+    /** @return array<string, array<string, mixed>> */
+    public function normalizedSideData(): array
+    {
+        $result = array_map($this->normalize(...), $this->static);
+        ksort($result);
+
+        return $result;
+    }
+
+    /** @param array<string, mixed> $side
+     * @return array<string, mixed>
+     */
+    private function normalize(array $side): array
+    {
+        foreach ($side as &$value) {
+            if (is_string($value) && preg_match('/^(-?\d+)\/([1-9]\d*)$/D', $value, $parts)) {
+                $value = round((float) $parts[1] / (float) $parts[2], 9);
+            }
+        }
+        unset($value);
+        ksort($side);
+
+        return $side;
+    }
+
     private function line(string $line): void
     {
         if (str_starts_with($line, 'frames.frame.')) {
             $this->frames = true;
         }
-        if (! preg_match('/^(frames\.frame\.\d+\.side_data_list\.side_data\.\d+)\.(\w+)=(.*)$/D', $line, $parts)) {
+        if (! preg_match('/^((?:frames\.frame|streams\.stream)\.\d+\.side_data_list\.side_data\.\d+)\.(\w+)=(.*)$/D', $line, $parts)) {
             return;
         }
         if ($parts[1] !== $this->section) {
@@ -87,7 +112,7 @@ class HdrInspection
         if (! is_string($type) || ! in_array($type, ['Mastering display metadata', 'Content light level metadata'], true)) {
             return;
         }
-        if (isset($this->static[$type]) && $this->static[$type] !== $this->side) {
+        if (isset($this->static[$type]) && $this->normalize($this->static[$type]) !== $this->normalize($this->side)) {
             $this->unsupported = true;
         }
         $this->static[$type] = $this->side;

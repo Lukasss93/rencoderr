@@ -36,26 +36,37 @@
         </x-slot:header>
         <form wire:submit="saveHardwareAcceleration" class="space-y-4">
             <p class="text-sm text-gray-600 dark:text-gray-300">This preference applies to the whole application. Automatic prefers NVIDIA NVENC, then Intel Quick Sync, then VAAPI, followed by other available encoding backends.</p>
-            <div class="flex flex-wrap items-end gap-4">
-                <div class="min-w-0 grow">
-                    <x-select.native id="preferred-acceleration" wire:model="preferredAcceleration" label="Preferred hardware acceleration">
+            <div @class(['grid items-start gap-4', 'md:grid-cols-2' => $deviceSelectable])>
+                <div class="min-w-0">
+                    <x-select.native id="preferred-acceleration" wire:model.live="preferredAcceleration" label="Preferred hardware acceleration">
                         <option value="auto">Automatic</option>
                         <option value="software">Software (CPU)</option>
-                        @foreach ($availableBackends as $backend)
+                        @foreach ($selectableBackends as $backend)
                             <option value="{{ $backend->value }}">{{ $backend->label() }}</option>
                         @endforeach
-                        @if ($savedAccelerationUnavailable)
+                        @if ($savedAccelerationUnavailable && ! in_array($savedAcceleration, array_column($selectableBackends, 'value'), true))
                             <option value="{{ $savedAcceleration }}" disabled>{{ HardwareBackend::labelFor($savedAcceleration) }} (unavailable)</option>
                         @endif
                     </x-select.native>
                 </div>
-                <x-button submit text="Save preference" loading="saveHardwareAcceleration"
-                    wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
+                @if ($deviceSelectable)
+                    <div class="min-w-0" wire:key="device-{{ $preferredAcceleration }}">
+                        <x-input id="preferred-device" wire:model="preferredDevice" label="Hardware device" placeholder="Default device"
+                            :hint="$preferredAcceleration === 'nvenc' ? 'GPU number, starting at 0. Leave empty for the default device.' : 'Linux render path, e.g. /dev/dri/renderD129, or Windows adapter number. Leave empty for the default device.'" />
+                    </div>
+                @endif
             </div>
             <p class="text-sm text-gray-600 dark:text-gray-300">Current backend: {{ $effectiveAcceleration?->label() ?? 'Software (CPU)' }}.</p>
+            @if ($effectiveAcceleration)
+                <p class="text-sm text-gray-600 dark:text-gray-300">Current device: {{ $savedDevice ?? 'Default device' }}.</p>
+            @endif
             @if ($savedAccelerationUnavailable)
                 <p role="alert" class="text-sm text-amber-700 dark:text-amber-400">Your saved hardware backend is unavailable. Encoding will fall back to Software (CPU).</p>
             @endif
+            <div class="flex justify-end">
+                <x-button submit text="Save preference" loading="saveHardwareAcceleration"
+                    wire:target="testEncoder,refreshDetection,saveHardwareAcceleration" />
+            </div>
         </form>
     </x-card>
 
@@ -77,7 +88,7 @@
                 <h2 class="font-semibold">Hardware acceleration</h2>
             </x-slot:header>
             <div class="space-y-4">
-                <p class="text-sm text-gray-600 dark:text-gray-300">Availability checks use the default device. Device availability and codec support are checked separately. A failed check may mean a missing driver, an inaccessible device, or a timeout.</p>
+                <p class="text-sm text-gray-600 dark:text-gray-300">Availability checks use the saved device for the preferred backend and the default device for other backends. Device availability and codec support are checked separately. A failed check may mean a missing driver, an inaccessible device, or a timeout.</p>
                 @if ($detection->accelerationError)
                     <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $detection->accelerationError }}</p>
                 @endif
@@ -95,7 +106,7 @@
 
         <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
             <p>Available encoders are grouped into hardware accelerated and software (CPU), then by codec. Hardware encoders require both FFmpeg support and an available acceleration backend.</p>
-            <p>Test encoder verifies H.264, HEVC, or AV1 with NVIDIA, VAAPI, or Intel Quick Sync using one generated frame and the default device. Tests do not read or change library files.</p>
+            <p>Test encoder verifies H.264, HEVC, or AV1 with NVIDIA, VAAPI, or Intel Quick Sync using one generated frame. Tests use the saved device for the preferred backend and the default device for other backends. Save your preference before testing. Tests do not read or change library files.</p>
         </div>
 
         @foreach ($groups as $type => $categories)

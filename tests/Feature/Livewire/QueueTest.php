@@ -8,6 +8,8 @@ use App\Models\LibraryPath;
 use App\Models\MediaTranscode;
 use App\Models\TranscodeRun;
 use App\Models\User;
+use App\QualityControl\Actions\RequestQualityCheck;
+use App\QualityControl\Enums\QualityVerdict;
 use App\Tasks\Enums\TaskStatus;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
@@ -208,4 +210,22 @@ it('shows skipped totals without suggesting an output is awaiting quality contro
     $run = TranscodeRun::factory()->create(['status' => TaskStatus::COMPLETED, 'finished_at' => now()]);
     MediaTranscode::factory()->count(2)->for($run, 'run')->create(['status' => TaskStatus::SKIPPED]);
     Livewire::test(Queue::class)->assertSee('2 skipped')->assertSee('Completed')->assertDontSee('Awaiting quality control');
+});
+
+require_once __DIR__.'/../../Support/QualityControlFixtures.php';
+
+it('shows quality results separately from encoding and permits cancellation and manual retry', function (): void {
+    JobQueue::fake();
+    $check = app(RequestQualityCheck::class)->handle(qualityTranscode());
+    Livewire::test(Queue::class)->assertSee('Quality control: Queued')->call('cancelQuality', $check->id);
+    expect($check->refresh()->status)->toBe(TaskStatus::CANCELLED);
+    Livewire::test(Queue::class)->assertSee('Retry quality control')->call('retryQuality', $check->id);
+    expect($check->refresh()->status)->toBe(TaskStatus::QUEUED);
+    $check->update(['status' => TaskStatus::COMPLETED, 'verdict' => QualityVerdict::REJECTED,
+        'vmaf_mean' => 0, 'results' => ['video_quality' => 'rejected']]);
+    $check->transcode()->firstOrFail()->run->update(['status' => TaskStatus::COMPLETED]);
+    Livewire::test(Queue::class)->assertDontSee('Awaiting quality control')->assertSee('Quality control: Rejected')->assertSee('0.00')
+        ->assertDontSee('Retry quality control')->call('retryQuality', $check->id);
+    expect($check->refresh()->status)->toBe(TaskStatus::COMPLETED)
+        ->and($check->transcode()->firstOrFail()->status)->toBe(TaskStatus::COMPLETED);
 });
