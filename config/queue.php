@@ -73,6 +73,15 @@ return [
             'after_commit' => false,
         ],
 
+        'redis-transcodes' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
+            'queue' => 'transcodes',
+            'retry_after' => max(1, (int) env('TRANSCODE_TIMEOUT_SECONDS', 604800)) + 180,
+            'block_for' => null,
+            'after_commit' => false,
+        ],
+
         'deferred' => [
             'driver' => 'deferred',
         ],

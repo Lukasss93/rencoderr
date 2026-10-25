@@ -17,9 +17,9 @@ class ProvisionHorizonSupervisor extends AddSupervisor
     /** @param array<string, mixed> $options */
     public function process(MasterSupervisor $master, array $options): void
     {
-        if (HorizonWorkers::manages($options['name'])) {
+        if (($pool = HorizonWorkers::poolFor($options['name'])) !== null) {
             try {
-                $options['maxProcesses'] = $this->limit->get();
+                $options['maxProcesses'] = $this->limit->get($pool);
             } catch (Throwable $exception) {
                 // Queue the command again so the supervisor still starts once the setting can be read.
                 $this->commands->push(MasterSupervisor::commandQueueFor($master->name), AddSupervisor::class, $options);

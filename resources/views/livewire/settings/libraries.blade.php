@@ -17,7 +17,9 @@
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <x-button text="Scan now" icon="arrow-path" sm wire:click="scan({{ $library->id }})" loading="scan" />
+                        <x-button text="Transcode library" icon="film" sm wire:click="transcode({{ $library->id }})" loading="transcode" />
                         <x-button text="Edit" sm flat wire:click="edit({{ $library->id }})" />
+                        <x-button text="Media settings" sm flat :href="route('settings.libraries.media', $library)" wire:navigate />
                         <x-button text="Remove" sm flat color="red" wire:click="delete({{ $library->id }})"
                             wire:confirm="Remove this library and its inventory? Source files will remain unchanged." />
                     </div>

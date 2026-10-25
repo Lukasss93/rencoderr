@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
  * @property list<string> $exclusion_patterns
@@ -19,6 +20,19 @@ class Library extends Model
 {
     /** @use HasFactory<LibraryFactory> */
     use HasFactory;
+
+    protected static function booted(): void
+    {
+        static::deleting(function (Library $library): void {
+            $library->settings()->delete();
+        });
+    }
+
+    /** @return MorphMany<Setting, $this> */
+    public function settings(): MorphMany
+    {
+        return $this->morphMany(Setting::class, 'settingable');
+    }
 
     /** @return HasMany<LibraryPath, $this> */
     public function paths(): HasMany

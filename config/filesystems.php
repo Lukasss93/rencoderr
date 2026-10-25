@@ -36,6 +36,12 @@ return [
 
     'disks' => [
 
+        'transcodes' => [
+            'driver' => 'local',
+            'root' => env('TRANSCODE_STAGING_PATH', storage_path('app/private/transcodes')),
+            'throw' => true,
+        ],
+
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),

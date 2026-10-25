@@ -1,6 +1,9 @@
 <?php
 
 use App\Models\Setting;
+use App\Workers\Enums\WorkerPool;
+use App\Workers\Enums\WorkerState;
+use App\Workers\HorizonWorkers;
 use App\Workers\WorkerLimit;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Contracts\Queue\Factory as QueueFactory;
@@ -9,6 +12,7 @@ use Illuminate\Support\Facades\Event;
 use Laravel\Horizon\AutoScaler;
 use Laravel\Horizon\Contracts\HorizonCommandQueue;
 use Laravel\Horizon\Contracts\MetricsRepository;
+use Laravel\Horizon\Contracts\SupervisorRepository;
 use Laravel\Horizon\Events\SupervisorLooped;
 use Laravel\Horizon\MasterSupervisor;
 use Laravel\Horizon\MasterSupervisorCommands\AddSupervisor;
@@ -22,6 +26,10 @@ use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Process\Process;
 
 use function Pest\Laravel\mock;
+
+beforeEach(function (): void {
+    mock(MetricsRepository::class)->shouldReceive('acquireWaitTimeMonitorLock')->andReturn(false);
+});
 
 it('uses the configured maximum until a worker limit is saved', function (): void {
     Config::set('horizon.defaults.supervisor-1.maxProcesses', 3);
@@ -212,4 +220,69 @@ it('builds and boots cached configuration before the database exists', function 
     expect($boot->getOutput())->toContain('settings.workers')
         ->and(file_exists($directory.'/config.php'))->toBeTrue()
         ->and(file_exists($directory.'/missing.sqlite'))->toBeFalse();
+});
+
+it('saves independent pool limits and preserves the standard setting key', function (): void {
+    $limit = app(WorkerLimit::class);
+    expect($limit->get(WorkerPool::TRANSCODES))->toBe(1);
+    $limit->save(5);
+    $limit->save(2, WorkerPool::TRANSCODES);
+
+    expect($limit->get())->toBe(5)
+        ->and($limit->get(WorkerPool::TRANSCODES))->toBe(2)
+        ->and(Setting::valueOf('queue_max_workers'))->toBe(5)
+        ->and(Setting::valueOf('transcode_max_workers'))->toBe(2);
+});
+
+it('provisions and refreshes each supervisor with its own limit', function (): void {
+    mock(HorizonCommandQueue::class)->shouldReceive('flush');
+    $limit = app(WorkerLimit::class);
+    $limit->save(4);
+    $limit->save(2, WorkerPool::TRANSCODES);
+    $master = new MasterSupervisor;
+    $plan = ProvisioningPlan::get('test-master');
+
+    foreach (WorkerPool::cases() as $pool) {
+        app(AddSupervisor::class)->process($master, $plan->optionsFor('*', $pool->supervisor())->toArray());
+    }
+
+    expect($master->supervisors->get(0)->options->maxProcesses)->toBe(4)
+        ->and($master->supervisors->get(0)->options->queue)->toBe('scans,probes,default')
+        ->and($master->supervisors->get(1)->options->maxProcesses)->toBe(2)
+        ->and($master->supervisors->get(1)->options->queue)->toBe('transcodes')
+        ->and($master->supervisors->get(1)->options->connection)->toBe('redis-transcodes');
+
+    $standard = new Supervisor($master->supervisors->get(0)->options);
+    $transcodes = new Supervisor($master->supervisors->get(1)->options);
+    $transcodes->working = false;
+    $limit->save(1, WorkerPool::TRANSCODES);
+    Event::dispatch(new SupervisorLooped($standard));
+    Event::dispatch(new SupervisorLooped($transcodes));
+
+    expect($standard->options->maxProcesses)->toBe(4)
+        ->and($transcodes->options->maxProcesses)->toBe(1)
+        ->and($transcodes->working)->toBeFalse();
+});
+
+it('reports the requested pool status without using another pool', function (): void {
+    mock(SupervisorRepository::class)->shouldReceive('all')->andReturn([
+        (object) ['name' => 'local:supervisor-1', 'status' => 'running', 'processes' => ['redis:scans,probes,default' => 4], 'options' => ['maxProcesses' => 5]],
+        (object) ['name' => 'local:supervisor-transcodes', 'status' => 'paused', 'processes' => ['redis-transcodes:transcodes' => 1], 'options' => ['maxProcesses' => 2]],
+    ]);
+    $status = app(HorizonWorkers::class)->status(WorkerPool::TRANSCODES);
+    expect($status->state)->toBe(WorkerState::PAUSED)->and($status->limit)->toBe(2)->and($status->workers)->toBe(1);
+});
+
+it('keeps transcode reservations beyond supervisor timeout and standard queues isolated', function (): void {
+    $plan = ProvisioningPlan::get('test-master');
+    $standard = $plan->optionsFor('*', WorkerPool::STANDARD->supervisor());
+    $transcodes = $plan->optionsFor('*', WorkerPool::TRANSCODES->supervisor());
+    $timeout = max(1, (int) config('transcoding.timeout_seconds', 604800));
+
+    expect($standard->queue)->toBe('scans,probes,default')
+        ->and($standard->timeout)->toBe(1830)
+        ->and($transcodes->queue)->toBe('transcodes')
+        ->and($transcodes->timeout)->toBe($timeout + 120)
+        ->and(config('queue.connections.redis-transcodes.retry_after'))->toBe($timeout + 180)
+        ->and(config('queue.connections.redis-transcodes.connection'))->toBe(config('queue.connections.redis.connection'));
 });

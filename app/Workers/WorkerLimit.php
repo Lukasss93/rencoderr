@@ -3,22 +3,21 @@
 namespace App\Workers;
 
 use App\Models\Setting;
+use App\Workers\Enums\WorkerPool;
 
 class WorkerLimit
 {
-    private const string SETTING = 'queue_max_workers';
-
-    public function get(): int
+    public function get(WorkerPool $pool = WorkerPool::STANDARD): int
     {
-        $value = Setting::valueOf(self::SETTING);
+        $value = Setting::valueOf($pool->settingKey());
 
         return is_int($value) && $value > 0
             ? $value
-            : max(1, (int) config('horizon.defaults.'.HorizonWorkers::SUPERVISOR.'.maxProcesses', 1));
+            : max(1, (int) config('horizon.defaults.'.$pool->supervisor().'.maxProcesses', 1));
     }
 
-    public function save(int $maxWorkers): void
+    public function save(int $maxWorkers, WorkerPool $pool = WorkerPool::STANDARD): void
     {
-        Setting::put(self::SETTING, $maxWorkers);
+        Setting::put($pool->settingKey(), $maxWorkers);
     }
 }

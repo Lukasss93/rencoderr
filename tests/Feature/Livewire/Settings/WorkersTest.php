@@ -3,6 +3,7 @@
 use App\Livewire\Settings\Workers;
 use App\Models\Setting;
 use App\Models\User;
+use App\Workers\Enums\WorkerPool;
 use App\Workers\Enums\WorkerState;
 use App\Workers\WorkerLimit;
 use App\Workers\WorkerStatus;
@@ -111,3 +112,22 @@ it('rejects worker setting updates after logout', function (): void {
 
     expect(Setting::query()->where('key', 'queue_max_workers')->exists())->toBeFalse();
 });
+
+it('saves transcode workers independently from unsaved standard input', function (): void {
+    $limit = app(WorkerLimit::class);
+    $limit->save(4);
+    Livewire::test(Workers::class)->assertSet('transcodeMaxWorkers', '1')
+        ->set('maxWorkers', 'invalid')->set('transcodeMaxWorkers', '2')->call('saveTranscodes')
+        ->assertHasNoErrors()->assertDispatched('ts-ui:toast', title: 'Transcode worker limit saved.');
+
+    expect($limit->get())->toBe(4)->and($limit->get(WorkerPool::TRANSCODES))->toBe(2);
+    Livewire::test(Workers::class)->assertSet('maxWorkers', '4')->assertSet('transcodeMaxWorkers', '2');
+});
+
+it('rejects invalid transcode limits without changing either saved pool', function (string $value): void {
+    $limit = app(WorkerLimit::class);
+    $limit->save(4);
+    Livewire::test(Workers::class)->set('transcodeMaxWorkers', $value)->call('saveTranscodes')
+        ->assertHasErrors('transcodeMaxWorkers')->assertNotDispatched('ts-ui:toast');
+    expect($limit->get())->toBe(4)->and(Setting::valueOf('transcode_max_workers'))->toBeNull();
+})->with(['', '0', '-1', '1.5', 'many', '999999999999999999999']);
