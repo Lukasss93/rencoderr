@@ -1,10 +1,13 @@
 <?php
 
 use App\Encoding\AccelerationPreference;
+use App\Encoding\EncoderDetector;
 use App\Ffmpeg\Enums\HardwareBackend;
 use App\Livewire\Settings\Status;
 use App\Models\Setting;
 use App\Models\User;
+use Illuminate\Process\Factory;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Process;
 use Livewire\Livewire;
@@ -79,18 +82,108 @@ it('allows switching to software when FFmpeg detection fails', function (): void
     expect(app(AccelerationPreference::class)->saved())->toBe('software');
 });
 
-it('only displays hardware encoding backends that can be selected', function (): void {
+it('allows choosing installed encoding backends to configure an alternate device', function (): void {
     fakeSettingsHardware();
     $component = Livewire::test(Status::class);
     $document = new DOMDocument;
     $document->loadHTML($component->html(), LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_NONET);
     $xpath = new DOMXPath($document);
 
-    expect($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option)'))->toBe(4.0)
+    expect($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option)'))->toBe(5.0)
         ->and($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option[@value="qsv"])'))->toBe(1.0)
         ->and($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option[@value="nvenc"])'))->toBe(1.0)
-        ->and($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option[@value="cuda" or @value="vaapi"])'))->toBe(0.0);
+        ->and($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option[@value="vaapi"])'))->toBe(1.0)
+        ->and($xpath->evaluate('count(//select[@id="preferred-acceleration"]/option[@value="cuda"])'))->toBe(0.0);
 });
+
+it('saves an alternate device even when the default device is unavailable', function (string $backend, string $device, string $initialization): void {
+    fakeSettingsHardware([
+        '*'.$initialization.'*' => 'frame=1',
+        '*=status*' => Process::result(exitCode: 1),
+    ]);
+
+    Livewire::test(Status::class)->set('preferredAcceleration', $backend)
+        ->set('preferredDevice', $device)->call('saveHardwareAcceleration')->assertHasNoErrors()
+        ->assertViewHas('effectiveAcceleration', HardwareBackend::from($backend));
+
+    Livewire::test(Status::class)->assertSet('preferredAcceleration', $backend)
+        ->assertSet('preferredDevice', $device)->assertSee('Current device: '.$device);
+})->with([
+    'NVIDIA second GPU' => ['nvenc', '1', 'cuda=status:1'],
+    'NVIDIA first GPU' => ['nvenc', '0', 'cuda=status:0'],
+    'Intel second GPU' => ['qsv', '/dev/dri/renderD129', 'qsv=status:hw,child_device=/dev/dri/renderD129'],
+    'VAAPI second GPU' => ['vaapi', '/dev/dri/renderD129', 'vaapi=status:/dev/dri/renderD129'],
+]);
+
+it('rejects invalid device selectors before running device checks', function (string $backend, string $device): void {
+    fakeSettingsHardware();
+    $component = Livewire::test(Status::class)->set('preferredAcceleration', $backend);
+    Process::swap((new Factory)->fake());
+
+    $component->set('preferredDevice', $device)->call('saveHardwareAcceleration')
+        ->assertHasErrors(['preferredDevice']);
+
+    Process::assertNothingRan();
+    expect(Setting::query()->count())->toBe(0);
+})->with([
+    ['nvenc', '-1'], ['nvenc', 'list'], ['nvenc', '1,primary_ctx=1'],
+    ['nvenc', '1; touch /tmp/injected'], ['qsv', '/etc/passwd'],
+    ['vaapi', '/dev/dri/renderD129,driver=evil'], ['qsv', "1\n"],
+    ['auto', '1'], ['software', '1'],
+]);
+
+it('preserves the saved device and cached checks when an alternate device fails', function (): void {
+    fakeSettingsHardware(['*cuda=status:1*' => 'frame=1', '*cuda=status:2*' => Process::result(exitCode: 1)]);
+    $component = Livewire::test(Status::class)->set('preferredAcceleration', 'nvenc')
+        ->set('preferredDevice', '1')->call('saveHardwareAcceleration')->assertHasNoErrors();
+
+    $component->set('preferredDevice', '2')->call('saveHardwareAcceleration')->assertHasErrors(['preferredDevice']);
+
+    Livewire::test(Status::class)->assertSet('preferredDevice', '1')
+        ->assertViewHas('effectiveAcceleration', HardwareBackend::NVENC);
+});
+
+it('clears device selection when changing backends including automatic and software', function (string $backend): void {
+    fakeSettingsHardware();
+    Livewire::test(Status::class)->set('preferredAcceleration', 'nvenc')
+        ->set('preferredDevice', '0')->call('saveHardwareAcceleration')->assertHasNoErrors()
+        ->set('preferredAcceleration', $backend)->assertSet('preferredDevice', '')
+        ->call('saveHardwareAcceleration')->assertHasNoErrors();
+
+    Livewire::test(Status::class)->assertSet('preferredDevice', '');
+})->with(['qsv', 'auto', 'software']);
+
+it('falls back to software when the saved device disappears and restores it after refresh', function (): void {
+    fakeSettingsHardware(['*cuda=status:1*' => Process::sequence()->push('frame=1')->push(Process::result(exitCode: 1))->push('frame=1')]);
+    $component = Livewire::test(Status::class)->set('preferredAcceleration', 'nvenc')
+        ->set('preferredDevice', '1')->call('saveHardwareAcceleration')->assertHasNoErrors();
+
+    $component->call('refreshDetection')->assertSet('preferredDevice', '1')
+        ->assertViewHas('effectiveAcceleration', null)->assertSee('Software (CPU)');
+    $component->call('refreshDetection')->assertViewHas('effectiveAcceleration', HardwareBackend::NVENC);
+});
+
+it('tests the saved device and discards verification when the device changes', function (string $backend, string $device, string $expectedArguments): void {
+    fakeSettingsHardware([
+        '*=status*' => 'frame=1',
+        '*-c:v*' => 'frame=1',
+    ]);
+    $component = Livewire::test(Status::class)->set('preferredAcceleration', $backend)
+        ->set('preferredDevice', $device)->call('saveHardwareAcceleration')->assertHasNoErrors()
+        ->call('testEncoder', 'h264_'.$backend)->assertSee('Verified');
+
+    Process::assertRan(fn (PendingProcess $process): bool => is_array($process->command)
+        && $process->timeout === 10 && str_contains(implode(' ', $process->command), $expectedArguments));
+    expect(app(EncoderDetector::class)->current()->checks['h264_'.$backend]->message)->toContain('device '.$device);
+
+    $component->set('preferredDevice', '')->call('saveHardwareAcceleration')->assertHasNoErrors();
+    expect(app(EncoderDetector::class)->current()->checks)->toBe([]);
+    Livewire::test(Status::class)->assertSet('preferredDevice', '')->assertSee('Current device: Default device');
+})->with([
+    ['nvenc', '1', '-gpu 1'],
+    ['qsv', '/dev/dri/renderD129', '-init_hw_device qsv=hw:hw,child_device=/dev/dri/renderD129'],
+    ['vaapi', '/dev/dri/renderD129', '-init_hw_device vaapi=hw:/dev/dri/renderD129 -filter_hw_device hw'],
+]);
 
 it('prevents saving application preferences after logout', function (): void {
     fakeSettingsHardware();

@@ -8,4 +8,5 @@ enum WorkQueue: string
     case PROBES = 'probes';
     case DEFAULT = 'default';
     case TRANSCODES = 'transcodes';
+    case QUALITY_CONTROL = 'quality-control';
 }

@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
@@ -20,9 +21,11 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  * @property CarbonImmutable|null $execution_deadline_at
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $finished_at
+ * @property list<array{index: int, type: string, action: string}>|null $stream_decisions
  * @property list<string>|null $arguments
+ * @property array<string, mixed>|null $optimization
  */
-#[Fillable(['transcode_run_id', 'media_file_id', 'request_token', 'attempt_token', 'status', 'source_path', 'source_size_bytes', 'source_modified_at', 'encoder', 'arguments', 'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds', 'diagnostic_tail', 'error', 'skip_reason', 'execution_deadline_at', 'started_at', 'finished_at'])]
+#[Fillable(['phase', 'optimization', 'transcode_run_id', 'media_file_id', 'request_token', 'attempt_token', 'status', 'source_path', 'source_size_bytes', 'source_modified_at', 'encoder', 'arguments', 'stream_decisions', 'output_path', 'output_size_bytes', 'progress_percent', 'encoded_seconds', 'diagnostic_tail', 'error', 'skip_reason', 'execution_deadline_at', 'started_at', 'finished_at'])]
 class MediaTranscode extends Model
 {
     /** @use HasFactory<MediaTranscodeFactory> */
@@ -46,6 +49,12 @@ class MediaTranscode extends Model
         return $this->morphMany(Setting::class, 'settingable');
     }
 
+    /** @return HasOne<MediaQualityCheck, $this> */
+    public function qualityCheck(): HasOne
+    {
+        return $this->hasOne(MediaQualityCheck::class);
+    }
+
     /** @param Builder<MediaTranscode> $query */
     #[Scope]
     protected function active(Builder $query): void
@@ -63,7 +72,7 @@ class MediaTranscode extends Model
     protected function casts(): array
     {
         return [
-            'status' => TaskStatus::class, 'source_size_bytes' => 'integer', 'output_size_bytes' => 'integer',
+            'optimization' => 'array', 'status' => TaskStatus::class, 'source_size_bytes' => 'integer', 'output_size_bytes' => 'integer',
             'source_modified_at' => 'immutable_datetime', 'execution_deadline_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime',
             'arguments' => 'array', 'stream_decisions' => 'array', 'progress_percent' => 'float', 'encoded_seconds' => 'float',

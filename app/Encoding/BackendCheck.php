@@ -15,20 +15,20 @@ class BackendCheck
     public function __construct(private Ffmpeg $ffmpeg) {}
 
     /** @param list<Encoder> $encoders */
-    public function check(string $name, array $encoders): Backend
+    public function check(string $name, array $encoders, ?string $device = null): Backend
     {
         $backend = HardwareBackend::tryFrom($name);
         $own = array_values(array_filter($encoders, fn (Encoder $encoder): bool => $encoder->backend?->value === $name));
-        [$available, $message] = $this->probe($name, $backend, $own);
+        [$available, $message] = $this->probe($name, $backend, $own, $device);
 
-        return new Backend($name, HardwareBackend::labelFor($name), count($own), $available, $message);
+        return new Backend($name, HardwareBackend::labelFor($name), count($own), $available, $message, $device);
     }
 
     /**
      * @param  list<Encoder>  $backendEncoders
      * @return array{bool, string}
      */
-    private function probe(string $name, ?HardwareBackend $backend, array $backendEncoders): array
+    private function probe(string $name, ?HardwareBackend $backend, array $backendEncoders, ?string $selectedDevice): array
     {
         $encoder = null;
 
@@ -40,7 +40,7 @@ class BackendCheck
             }
         }
 
-        $device = $backend === null ? $name.'=status' : $backend->statusDevice();
+        $device = $backend === null ? $name.'=status' : $backend->statusDevice($selectedDevice);
         $arguments = ['-hide_banner', '-nostdin', '-loglevel', $backend === HardwareBackend::VULKAN ? 'verbose' : 'error'];
 
         if ($device !== null) {
@@ -50,19 +50,19 @@ class BackendCheck
         $arguments = [...$arguments, '-f', 'lavfi', '-i', 'color=c=black:s=1280x720:r=1', '-vf', 'format=nv12'];
 
         if ($encoder !== null) {
-            $arguments = [...$arguments, '-c:v', $encoder->name, ...$backend->hardwareOnlyArguments()];
+            $arguments = [...$arguments, '-c:v', $encoder->name, ...$backend->hardwareOnlyArguments($selectedDevice)];
         }
 
         try {
             $result = $this->ffmpeg->run([...$arguments, '-frames:v', '1', '-progress', 'pipe:1', '-f', 'null', '-'], 3);
         } catch (ProcessTimedOutException) {
-            return [false, 'The default device check timed out after 3 seconds.'];
+            return [false, 'The hardware device check timed out after 3 seconds.'];
         } catch (RuntimeException) {
-            return [false, 'The default device check could not start. Check application permissions.'];
+            return [false, 'The hardware device check could not start. Check application permissions.'];
         }
 
         if (! $result->producedFrame()) {
-            return [false, $result->errorMessage('The default device check did not complete successfully.')];
+            return [false, $result->errorMessage('The hardware device check did not complete successfully.')];
         }
 
         // Vulkan also runs on software devices such as llvmpipe, which do not accelerate anything.
@@ -71,7 +71,7 @@ class BackendCheck
         }
 
         return [true, $encoder === null
-            ? 'Initialized the default hardware device. Check individual encoders for codec support.'
+            ? 'Initialized '.($selectedDevice ?? 'the default hardware device').'. Check individual encoders for codec support.'
             : 'Encoded a generated frame with '.$encoder->name.'.'];
     }
 

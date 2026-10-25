@@ -9,6 +9,8 @@ use App\Models\Library;
 use App\Models\MediaTranscode;
 use App\Probe\Listeners\QueueProbesAfterScan;
 use App\Probe\MediaProber;
+use App\QualityControl\Listeners\QueueQualityCheck;
+use App\Transcoding\Events\TranscodeCompleted;
 use FFMpeg\Driver\FFMpegDriver;
 use FFMpeg\Driver\FFProbeDriver;
 use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
@@ -35,6 +37,7 @@ class AppServiceProvider extends ServiceProvider
         }
 
         Event::listen(LibraryPathScanned::class, QueueProbesAfterScan::class);
+        Event::listen(TranscodeCompleted::class, QueueQualityCheck::class);
 
         Livewire::addPersistentMiddleware([
             Authenticate::class,

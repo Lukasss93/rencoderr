@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Number;
 
@@ -35,6 +36,27 @@ class MediaFile extends Model
     public function probe(): HasOne
     {
         return $this->hasOne(MediaProbe::class);
+    }
+
+    /** @return HasMany<MediaTranscode, $this> */
+    public function transcodes(): HasMany
+    {
+        return $this->hasMany(MediaTranscode::class);
+    }
+
+    /** @return HasOne<MediaTranscode, $this> */
+    public function latestTranscode(): HasOne
+    {
+        return $this->hasOne(MediaTranscode::class)->latestOfMany();
+    }
+
+    public function transcodeUnavailableReason(): ?string
+    {
+        if ($this->status !== MediaFileStatus::PRESENT) {
+            return 'Only present files can be transcoded.';
+        }
+
+        return $this->hasCurrentProbe() ? null : 'Current metadata is required before transcoding.';
     }
 
     public function hasCurrentProbe(): bool

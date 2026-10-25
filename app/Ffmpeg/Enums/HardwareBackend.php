@@ -75,11 +75,12 @@ enum HardwareBackend: string
         return in_array($this, [self::NVENC, self::AMF, self::VIDEOTOOLBOX, self::V4L2M2M, self::OMX, self::MEDIACODEC, self::MF], true);
     }
 
-    public function statusDevice(): ?string
+    public function statusDevice(?string $device = null): ?string
     {
         return match ($this) {
-            self::NVENC => 'cuda=status',
-            self::QSV => 'qsv=status:hw',
+            self::NVENC => 'cuda=status'.($device !== null ? ':'.$device : ''),
+            self::QSV => 'qsv=status:hw'.($device !== null ? ',child_device='.$device : ''),
+            self::VAAPI => 'vaapi=status'.($device !== null ? ':'.$device : ''),
             self::OPENCL => 'opencl=status:,device_type=gpu',
             self::AMF, self::VIDEOTOOLBOX, self::V4L2M2M, self::OMX, self::MEDIACODEC, self::MF => null,
             default => $this->value.'=status',
@@ -87,9 +88,10 @@ enum HardwareBackend: string
     }
 
     /** @return list<string> */
-    public function hardwareOnlyArguments(): array
+    public function hardwareOnlyArguments(?string $device = null): array
     {
         return match ($this) {
+            self::NVENC => $device !== null ? ['-gpu', $device] : [],
             self::MF => ['-hw_encoding', '1'],
             self::VIDEOTOOLBOX => ['-allow_sw', '0', '-require_sw', '0'],
             default => [],
@@ -101,16 +103,25 @@ enum HardwareBackend: string
         return in_array($this, [self::NVENC, self::VAAPI, self::QSV], true);
     }
 
+    public function devicePattern(): ?string
+    {
+        return match ($this) {
+            self::NVENC => '/^(0|[1-9][0-9]*)$/D',
+            self::QSV, self::VAAPI => '/^(\/dev\/dri\/renderD[0-9]+|0|[1-9][0-9]*)$/D',
+            default => null,
+        };
+    }
+
     /**
      * They go before the input.
      *
      * @return list<string>
      */
-    public function encodingDeviceArguments(): array
+    public function encodingDeviceArguments(?string $device = null): array
     {
         return match ($this) {
-            self::VAAPI => ['-init_hw_device', 'vaapi=hw', '-filter_hw_device', 'hw'],
-            self::QSV => ['-init_hw_device', 'qsv=hw:hw'],
+            self::VAAPI => ['-init_hw_device', 'vaapi=hw'.($device !== null ? ':'.$device : ''), '-filter_hw_device', 'hw'],
+            self::QSV => ['-init_hw_device', 'qsv=hw:hw'.($device !== null ? ',child_device='.$device : '')],
             default => [],
         };
     }

@@ -2,6 +2,7 @@
 
 namespace App\Transcoding\Actions;
 
+use App\Encoding\AccelerationPreference;
 use App\Encoding\Enums\HdrMode;
 use App\Encoding\MediaPreferences;
 use App\Library\MediaFilePath;
@@ -10,8 +11,11 @@ use App\Models\MediaFile;
 use App\Models\MediaStream;
 use App\Models\MediaTranscode;
 use App\Models\TranscodeRun;
+use App\QualityControl\QualityPolicy;
 use App\Tasks\Enums\TaskStatus;
+use App\Transcoding\Events\TranscodeCompleted;
 use App\Transcoding\HdrInspection;
+use App\Transcoding\OptimizationPolicy;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\StagingArea;
 use App\Transcoding\TranscodeInterrupted;
@@ -33,6 +37,10 @@ class RunTranscode
         private TranscodeProcess $process,
         private StagingArea $staging,
         private FinalizeTranscodeRun $finalize,
+        private OptimizeTranscode $optimizer,
+        private OptimizationPolicy $optimizationPolicy,
+        private QualityPolicy $qualityPolicy,
+        private AccelerationPreference $acceleration,
     ) {}
 
     public function handle(int $transcodeId, string $token): void
@@ -42,6 +50,7 @@ class RunTranscode
             ->where('attempt_token', $attempt)->where('status', TaskStatus::RUNNING);
         $claimed = MediaTranscode::query()->forRequest($transcodeId, $token)->where('status', TaskStatus::QUEUED)->update([
             'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(),
+            'phase' => 'preparing', 'optimization' => null,
             'execution_deadline_at' => now()->addSeconds((int) config('transcoding.timeout_seconds')),
             'progress_percent' => null, 'encoded_seconds' => null, 'error' => null, 'diagnostic_tail' => null, 'finished_at' => null,
         ]);
@@ -63,6 +72,16 @@ class RunTranscode
             $current()->update([...$outcome, 'finished_at' => now()]);
         }
         $this->finalize->handle($item->transcode_run_id);
+        if ($outcome === null && $item->refresh()->status === TaskStatus::COMPLETED) {
+            DB::afterCommit(function () use ($item, $attempt): void {
+                try {
+                    event(new TranscodeCompleted($item->id, $attempt));
+                } catch (Throwable $exception) {
+                    // Recovery repairs the handoff; an accepted file must never enter encode cleanup.
+                    report($exception);
+                }
+            });
+        }
     }
 
     /**
@@ -84,8 +103,41 @@ class RunTranscode
         if ($plan instanceof SkippedTranscode) {
             return $plan;
         }
-        $current()->firstOrFail()->update(['encoder' => $plan->encoder->value, 'arguments' => $plan->arguments, 'stream_decisions' => $plan->streamDecisions]);
         $output = $this->staging->prepare($item->id, (string) $item->attempt_token);
+        $quality = $this->qualityPolicy->forEncoding($item);
+        $policy = $this->optimizationPolicy->snapshot($plan->settings);
+        $this->updateOwned($current, ['optimization' => ['enabled' => $policy['enabled'], 'quality_policy' => $quality]]);
+        if ($policy['enabled']) {
+            $plans = [$plan];
+            if ($plan->encoder->backend() !== null && $this->acceleration->saved() === AccelerationPreference::AUTOMATIC) {
+                $software = $this->builder->handle($file, $plan->settings, forceSoftware: true);
+                if ($software instanceof TranscodePlan) {
+                    $plans[] = $software;
+                }
+            }
+            $directory = dirname($output).'/optimization';
+            try {
+                $plan = $this->optimizer->handle($plans, $policy, $quality, $directory,
+                    microtime(true) + $this->remaining($item), $this->stopCheck($item, $current),
+                    function (array $update) use ($current): void {
+                        if (strlen(json_encode($update, JSON_THROW_ON_ERROR)) > 262144) {
+                            throw new RuntimeException('The optimization audit exceeded its size limit.');
+                        }
+                        $this->updateOwned($current, $update);
+                    });
+            } finally {
+                $relative = $this->staging->directory($item->id, (string) $item->attempt_token).'/optimization';
+                if ($this->staging->disk()->directoryExists($relative) && ! $this->staging->disk()->deleteDirectory($relative)) {
+                    throw new RuntimeException('Could not clean optimization samples.');
+                }
+            }
+            if ($plan instanceof SkippedTranscode) {
+                return $plan;
+            }
+        }
+        $prepared = $current()->firstOrFail();
+        $this->staging->ensureSpace(dirname($output), $prepared->optimization['winner']['bytes'] ?? $plan->sourceSizeBytes);
+        $this->updateOwned($current, ['phase' => 'encoding', 'encoder' => $plan->encoder->value, 'arguments' => $plan->arguments, 'stream_decisions' => $plan->streamDecisions]);
         $duration = $file->probe?->duration_seconds;
         $result = $this->process->run($plan->arguments, $output, $this->remaining($item),
             $duration === null ? null : (float) $duration, $this->stopCheck($item, $current), $this->progress($current));
@@ -166,6 +218,17 @@ class RunTranscode
         }
 
         return $remaining;
+    }
+
+    /** @param Closure(): Builder<MediaTranscode> $current
+     * @param  array<string, mixed>  $attributes
+     */
+    private function updateOwned(Closure $current, array $attributes): void
+    {
+        $serialized = (new MediaTranscode)->fill($attributes)->getAttributes();
+        if ($current()->update($serialized) !== 1) {
+            throw new TranscodeInterrupted('The transcode attempt no longer owns this job.');
+        }
     }
 
     private function includeFrameMetadata(MediaFile $file, int $streamIndex, HdrInspection $inspection): void

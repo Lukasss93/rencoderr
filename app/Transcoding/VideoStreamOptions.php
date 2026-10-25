@@ -5,6 +5,7 @@ namespace App\Transcoding;
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\Enums\HdrMode;
 use App\Encoding\Enums\TargetVideoCodec;
+use App\Ffmpeg\ToneMap;
 use App\Models\MediaStream;
 
 class VideoStreamOptions
@@ -13,7 +14,7 @@ class VideoStreamOptions
      * @param  array<string, mixed>  $raw
      * @return array{arguments: list<string>, filter: string, software_only: bool}|SkippedTranscode
      */
-    public function handle(MediaStream $video, array $raw, MediaSettings $settings, ?string $ffmpegVersion): array|SkippedTranscode
+    public function handle(MediaStream $video, array $raw, MediaSettings $settings): array|SkippedTranscode
     {
         $formats = $this->formats($settings->videoCodec);
         if (! in_array($video->pixel_format, $formats, true) || $video->width < 1 || $video->height < 1
@@ -45,9 +46,7 @@ class VideoStreamOptions
         $arguments = [];
         $filter = '';
         if ($hdr && $settings->hdrMode === HdrMode::TONE_MAP) {
-            $filter = 'zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format='.$video->pixel_format
-                .',sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL'
-                .',sidedata=mode=delete:type=DYNAMIC_HDR_PLUS,sidedata=mode=delete:type=DOVI_RPU_BUFFER,sidedata=mode=delete:type=DOVI_METADATA,sidedata=mode=delete:type=DYNAMIC_HDR_VIVID';
+            $filter = ToneMap::filter((string) $video->pixel_format);
             $arguments = ['-color_primaries:v:0', 'bt709', '-color_trc:v:0', 'bt709', '-colorspace:v:0', 'bt709', '-color_range:v:0', 'tv'];
             // Container tags from the source must not advertise obsolete HDR mastering data.
             foreach (['mastering-display', 'max-cll', 'HDR_FORMAT', 'DURATION', 'NUMBER_OF_FRAMES', 'NUMBER_OF_BYTES', 'BPS'] as $tag) {
@@ -68,10 +67,6 @@ class VideoStreamOptions
                 $type = $side['side_data_type'] ?? null;
                 if ($type === 'Mastering display metadata') {
                     if ($settings->videoCodec === TargetVideoCodec::AV1) {
-                        if (! $this->supportsAv1Mastering($ffmpegVersion)) {
-                            return new SkippedTranscode('unsupported_hdr_mastering', 'Preserving AV1 mastering display metadata requires FFmpeg 7.1 or later.');
-                        }
-
                         continue;
                     }
                     $mastering = $this->mastering($side);
@@ -80,10 +75,10 @@ class VideoStreamOptions
                     }
                     $params[] = 'master-display='.$mastering;
                 } elseif ($type === 'Content light level metadata') {
-                    if ($settings->videoCodec === TargetVideoCodec::AV1 && $this->supportsAv1Mastering($ffmpegVersion)) {
+                    if ($settings->videoCodec === TargetVideoCodec::AV1) {
                         continue;
                     }
-                    if ($settings->videoCodec !== TargetVideoCodec::HEVC || ! isset($side['max_content'], $side['max_average'])) {
+                    if (! isset($side['max_content'], $side['max_average'])) {
                         return new SkippedTranscode('unsupported_hdr_mastering', 'The content light metadata cannot be preserved by the selected pipeline.');
                     }
                     $params[] = 'max-cll='.(int) $side['max_content'].','.(int) $side['max_average'];
@@ -96,12 +91,6 @@ class VideoStreamOptions
 
         return ['arguments' => $arguments, 'filter' => $filter,
             'software_only' => $hdr || $video->width > 4096 || $video->height > 4096 || ! in_array($video->pixel_format, ['yuv420p', 'yuv420p10le'], true)];
-    }
-
-    private function supportsAv1Mastering(?string $version): bool
-    {
-        return $version !== null && preg_match('/^(?:n)?(\d+\.\d+(?:\.\d+)?)/', $version, $parts) === 1
-            && version_compare($parts[1], '7.1', '>=');
     }
 
     /** @return list<string> */

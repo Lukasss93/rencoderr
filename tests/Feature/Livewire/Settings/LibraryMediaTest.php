@@ -108,9 +108,9 @@ it('applies presets as three overrides without changing other inheritance', func
 
     $component->call('save')->assertHasNoErrors();
     expect($library->settings()->pluck('value', 'key')->all())->toEqual([
-        'media.video_codec' => $codec, 'media.video_quality' => 'high', 'media.encoding_speed' => 'balanced', 'media.hdr_mode' => 'skip',
+        'media.video_codec' => $codec, 'media.video_quality' => 'smaller', 'media.encoding_speed' => 'slow', 'media.hdr_mode' => 'skip',
     ]);
-})->with(['HEVC' => ['hevc_high_quality', 'hevc'], 'AV1' => ['av1_high_quality', 'av1']]);
+})->with(['HEVC' => ['hevc_save_storage', 'hevc'], 'AV1' => ['av1_save_storage', 'av1']]);
 
 it('resets fields and all overrides only when saved', function (): void {
     $library = Library::factory()->withSettings(['media.video_codec' => 'av1', 'media.minimum_savings_percent' => 20])->create();

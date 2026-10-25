@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Transcoding;
+namespace App\Ffmpeg;
 
-readonly class TranscodeProcessResult
+readonly class MediaProcessResult
 {
     public function __construct(public int $exitCode, public string $diagnosticTail) {}
 }
