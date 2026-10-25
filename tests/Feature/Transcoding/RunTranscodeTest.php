@@ -1,12 +1,17 @@
 <?php
 
+use App\Encoding\AccelerationPreference;
+use App\Encoding\Data\Backend;
 use App\Encoding\Data\Detection;
 use App\Encoding\Data\Encoder;
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\EncoderDetector;
 use App\Encoding\Enums\EncoderType;
+use App\Encoding\Enums\TargetVideoCodec;
+use App\Encoding\Enums\VideoEncoder;
 use App\Encoding\Enums\VideoQuality;
 use App\Encoding\MediaPreferences;
+use App\Ffmpeg\Enums\HardwareBackend;
 use App\Ffmpeg\MediaProcessInterrupted;
 use App\Ffmpeg\MediaProcessResult;
 use App\Jobs\CheckMediaQuality;
@@ -75,6 +80,36 @@ it('optimizes before the sole full encode and persists its chosen arguments', fu
     expect($item->status)->toBe(TaskStatus::COMPLETED)
         ->and($item->optimization['winner']['quality'] ?? null)->toBe(34);
 });
+
+it('keeps optimization and the full encode on the selected acceleration backend', function (string $mode, TargetVideoCodec $codec): void {
+    $item = executableTranscode();
+    app(MediaPreferences::class)->saveGlobal(new MediaSettings(videoCodec: $codec));
+    app(AccelerationPreference::class)->save($mode);
+    $hardware = $codec === TargetVideoCodec::AV1 ? VideoEncoder::AV1_VAAPI : VideoEncoder::HEVC_VAAPI;
+    $software = $codec->softwareEncoder();
+    $expected = $mode === AccelerationPreference::SOFTWARE ? $software : $hardware;
+    app(EncoderDetector::class)->store(new Detection(now()->toImmutable(), encoders: [
+        new Encoder($hardware->value, $codec->value, EncoderType::VIDEO, 'VAAPI', HardwareBackend::VAAPI),
+        new Encoder($software->value, $codec->value, EncoderType::VIDEO, 'Software'),
+    ], backends: ['vaapi' => new Backend('vaapi', 'VAAPI', 1, true, 'Available')]));
+    $optimizer = Mockery::mock(OptimizeTranscode::class);
+    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans) use ($expected) {
+        expect($plans)->toHaveCount(1)->and($plans[0]->encoder)->toBe($expected);
+
+        return $plans[0];
+    });
+    app()->instance(OptimizeTranscode::class, $optimizer);
+    $runner = Mockery::mock(TranscodeProcess::class);
+    $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output) use ($expected): MediaProcessResult {
+        expect(implode(' ', $args))->toContain('-c:0 '.$expected->value);
+        file_put_contents($output, 'encoded-output');
+
+        return new MediaProcessResult(0, '');
+    });
+    app()->instance(TranscodeProcess::class, $runner);
+    app(RunTranscode::class)->handle($item->id, $item->request_token);
+    expect($item->refresh()->error)->toBeNull()->and($item->status)->toBe(TaskStatus::COMPLETED);
+})->with(['auto', 'vaapi', 'software'])->with([TargetVideoCodec::HEVC, TargetVideoCodec::AV1]);
 
 it('uses the latest settings and stages an immutable handoff without touching the source', function (): void {
     $item = executableTranscode();

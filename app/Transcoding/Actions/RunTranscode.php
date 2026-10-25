@@ -2,7 +2,6 @@
 
 namespace App\Transcoding\Actions;
 
-use App\Encoding\AccelerationPreference;
 use App\Encoding\Enums\HdrMode;
 use App\Encoding\MediaPreferences;
 use App\Library\MediaFilePath;
@@ -40,7 +39,6 @@ class RunTranscode
         private OptimizeTranscode $optimizer,
         private OptimizationPolicy $optimizationPolicy,
         private QualityPolicy $qualityPolicy,
-        private AccelerationPreference $acceleration,
     ) {}
 
     public function handle(int $transcodeId, string $token): void
@@ -108,16 +106,9 @@ class RunTranscode
         $policy = $this->optimizationPolicy->snapshot($plan->settings);
         $this->updateOwned($current, ['optimization' => ['enabled' => $policy['enabled'], 'quality_policy' => $quality]]);
         if ($policy['enabled']) {
-            $plans = [$plan];
-            if ($plan->encoder->backend() !== null && $this->acceleration->saved() === AccelerationPreference::AUTOMATIC) {
-                $software = $this->builder->handle($file, $plan->settings, forceSoftware: true);
-                if ($software instanceof TranscodePlan) {
-                    $plans[] = $software;
-                }
-            }
             $directory = dirname($output).'/optimization';
             try {
-                $plan = $this->optimizer->handle($plans, $policy, $quality, $directory,
+                $plan = $this->optimizer->handle([$plan], $policy, $quality, $directory,
                     microtime(true) + $this->remaining($item), $this->stopCheck($item, $current),
                     function (array $update) use ($current): void {
                         if (strlen(json_encode($update, JSON_THROW_ON_ERROR)) > 262144) {

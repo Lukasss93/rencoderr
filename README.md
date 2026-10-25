@@ -88,7 +88,7 @@ VMAF measures perceptual video similarity. It helps screen results, but visual i
 
 ### Encoding and quality control
 
-With both savings and video-quality verification enabled, Rencoderr measures representative samples and searches for the smallest acceptable output. **5% is the minimum worthwhile saving, not the target.** In Auto acceleration mode, it compares the selected hardware encoder with the same codec's software encoder. Disabling either check uses the selected fixed quality hint instead.
+With both savings and video-quality verification enabled, Rencoderr measures representative samples and searches for the smallest acceptable output using the selected acceleration backend. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality hint instead.
 
 Preparation has limits on time, candidate count, and temporary storage. If it cannot confirm a suitable candidate, the file is skipped with a reason. Each request performs at most one full encode.
 
@@ -125,7 +125,7 @@ For NVIDIA, install the NVIDIA Container Toolkit on the host, add `NVIDIA_DRIVER
 
 Apply the changes with `docker compose up -d`. Open **Settings → Status** to refresh detection, test encoders, and choose acceleration:
 
-- **Auto:** selects an available backend and compares hardware with software during storage optimization.
+- **Auto:** prefers an available hardware backend and keeps storage optimization on that encoder.
 - **Software:** uses the CPU.
 - **Explicit backend:** uses the selected backend when available. If it becomes unavailable, encoding falls back to software for the same codec.
 

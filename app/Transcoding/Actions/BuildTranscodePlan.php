@@ -27,7 +27,7 @@ class BuildTranscodePlan
         private VideoStreamOptions $videoOptions,
     ) {}
 
-    public function handle(MediaFile $file, MediaSettings $settings, bool $forceSoftware = false): TranscodePlan|SkippedTranscode
+    public function handle(MediaFile $file, MediaSettings $settings): TranscodePlan|SkippedTranscode
     {
         $file->loadMissing('probe.streams');
 
@@ -70,7 +70,7 @@ class BuildTranscodePlan
             return $options;
         }
 
-        $encoder = $this->encoder($detection, $settings, $options['software_only'] || $forceSoftware);
+        $encoder = $this->encoder($detection, $settings, $options['software_only']);
         $device = $detection->backends[$encoder->backend()->value ?? '']->device ?? null;
         $inputArguments = ['-nostdin', '-hide_banner', '-noautorotate', ...($encoder->backend()?->encodingDeviceArguments($device) ?? [])];
         $arguments = [...$inputArguments, '-i', $path,
