@@ -52,6 +52,7 @@ it('boots without a GPU, serves assets and preserves state across replacement', 
     withProductionContainer(function (string $name, string $volume): void {
         $key = containerCommand(['exec', $name, 'cat', '/config/app-key']);
         expect(trim(containerCommand(['exec', $name, 'stat', '-c', '%u:%g', '/config/database/database.sqlite'])))->toBe('12345:12345');
+        expect(containerCommand(['exec', $name, 'runuser', '-u', 'rencoderr', '--', 'sh', '-c', 'test -w "$XDG_CACHE_HOME" && printf "%s" "$XDG_CACHE_HOME"']))->toBe('/config/storage/cache');
         expect(containerCommand(['exec', $name, 'curl', '-fsS', 'http://127.0.0.1:8000/login']))->toContain('livewire');
         $asset = trim(containerCommand(['exec', $name, 'php', '-r', '$m = json_decode(file_get_contents("public/build/manifest.json"), true); echo $m["resources/css/app.css"]["file"];']));
         expect(containerCommand(['exec', $name, 'curl', '-fsS', 'http://127.0.0.1:8000/build/'.$asset]))->not->toBeEmpty();

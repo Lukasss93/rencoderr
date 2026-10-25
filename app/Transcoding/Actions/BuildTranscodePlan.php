@@ -9,6 +9,7 @@ use App\Encoding\EncoderDetector;
 use App\Encoding\Enums\AudioChannels;
 use App\Encoding\Enums\AudioCodec;
 use App\Encoding\Enums\VideoEncoder;
+use App\Ffmpeg\HardwareDecoding;
 use App\Library\MediaFilePath;
 use App\Models\MediaFile;
 use App\Models\MediaStream;
@@ -72,8 +73,12 @@ class BuildTranscodePlan
 
         $encoder = $this->encoder($detection, $settings, $options['software_only']);
         $device = $detection->backends[$encoder->backend()->value ?? '']->device ?? null;
-        $inputArguments = ['-nostdin', '-hide_banner', '-noautorotate', ...($encoder->backend()?->encodingDeviceArguments($device) ?? [])];
-        $arguments = [...$inputArguments, '-i', $path,
+        $encodingDevice = $encoder->backend()?->encodingDeviceArguments($device) ?? [];
+        $decoding = new HardwareDecoding($encoder->backend(), $device);
+        $decodeDevice = $encodingDevice !== [] ? 'hw' : 'decode';
+        $decodeInput = $decoding->inputArguments(['index' => $video->stream_index, 'codec_name' => $video->codec_name, 'pix_fmt' => $video->pixel_format], $decodeDevice);
+        $inputArguments = ['-nostdin', '-hide_banner', '-noautorotate', ...$encodingDevice];
+        $arguments = [...$inputArguments, ...($decodeInput !== [] && $decodeDevice === 'decode' ? $decoding->deviceArguments() : []), ...$decodeInput, '-i', $path,
             '-map_metadata', '0', '-map_chapters', '0', '-c', 'copy'];
         $decisions = [];
         $output = 0;
@@ -181,7 +186,7 @@ class BuildTranscodePlan
         $arguments = [...$arguments, '-f', 'matroska'];
 
         return new TranscodePlan($encoder, $settings, $path, $file->size_bytes, $file->filesystem_modified_at,
-            [...$prefix, ...$settings->videoQuality->arguments($encoder), ...$arguments], $decisions, $prefix, $inputArguments, $arguments);
+            [...$prefix, ...$settings->videoQuality->arguments($encoder), ...$arguments], $decisions, $prefix, $inputArguments, $arguments, decoding: $decoding);
     }
 
     private function encoder(Detection $detection, MediaSettings $settings, bool $softwareOnly): VideoEncoder

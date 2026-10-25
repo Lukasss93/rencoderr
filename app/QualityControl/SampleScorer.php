@@ -4,6 +4,7 @@ namespace App\QualityControl;
 
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\Enums\HdrMode;
+use App\Ffmpeg\HardwareDecoding;
 use App\Ffmpeg\ToneMap;
 
 class SampleScorer
@@ -19,13 +20,17 @@ class SampleScorer
     public function comparison(string $binary, array $files, array $source, array $output, array $contract, MediaSettings $settings, array $policy, array $range, int $threads, string $log): array
     {
         $command = [$binary, '-nostdin', '-xerror', '-v', 'error', '-nostats', '-progress', 'pipe:1', '-stats_period', '1', '-copyts', '-filter_complex_threads', (string) $threads];
+        $decoding = HardwareDecoding::fromPolicy($policy);
+        if ($decoding->inputArguments($contract['source_video']) !== [] || $decoding->inputArguments($contract['output_video']) !== []) {
+            $command = [...$command, ...$decoding->deviceArguments()];
+        }
         foreach (['source' => $source, 'output' => $output] as $name => $probe) {
             $seek = max(0.0, $range[$name.'_start'] - (float) ($probe['format']['start_time'] ?? 0) - 2);
             $command = [...$command, '-threads', (string) $threads];
             if ($seek > 0) {
                 $command = [...$command, '-ss', sprintf('%.9F', $seek)];
             }
-            $command = [...$command, '-noautorotate', '-i', $files[$name]];
+            $command = [...$command, ...$decoding->inputArguments($contract[$name.'_video']), '-noautorotate', '-i', $files[$name]];
         }
         $chains = [];
         foreach (['source' => 'reference', 'output' => 'distorted'] as $name => $label) {

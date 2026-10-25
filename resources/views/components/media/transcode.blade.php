@@ -15,6 +15,8 @@
                 <p class="text-sm">Automatic storage optimization · {{ count($transcode->optimization['candidates'] ?? []) }} candidates measured</p>
                 @if ($transcode->optimization['winner'] ?? null)
                     <p class="text-sm">Estimated savings: {{ number_format($transcode->optimization['winner']['estimated_savings_percent'] ?? 0, 1) }}% · Selected quality: {{ $transcode->optimization['winner']['quality'] }} · {{ $transcode->optimization['winner']['encoder'] ?? '' }}</p>
+                @elseif ($transcode->optimization['closest'] ?? null)
+                    <p class="text-sm">Closest measured result: {{ $transcode->optimization['closest']['encoder'] }} · Quality {{ $transcode->optimization['closest']['quality'] }} · Lowest window VMAF: {{ number_format($transcode->optimization['closest']['vmaf'], 2) }} (required {{ number_format($transcode->optimization['policy']['quality_floor'], 2) }}) · Estimated output: {{ Number::fileSize($transcode->optimization['closest']['bytes'], maxPrecision: 2) }} · {{ $transcode->optimization['closest']['within_size_budget'] ? 'Within size budget' : 'Above size budget' }}</p>
                 @endif
             @else
                 <p class="text-sm">Direct encoding: automatic storage optimization is disabled because a required savings or video quality check is disabled.</p>

@@ -124,3 +124,60 @@ it('reserves encoded audio for its complete packet span rather than video durati
     expect($result->reason)->toBe('retained_streams_exceed_budget')
         ->and($audit['optimization']['retained_non_video_bytes'])->toBe(1760001);
 });
+
+it('uses confirmation failures to refine toward higher quality and records the actual winner', function (): void {
+    $seen = [];
+    [$plans, $policy, $quality, $directory] = optimizationFixture(function ($media, $plan) use (&$seen): array {
+        $value = $plan->quality->value;
+        $confirming = in_array($value, $seen, true);
+        $seen[] = $value;
+        $score = $confirming && $value >= 38 ? 94.0 : 100 - $value * 0.1;
+
+        return ['video_bytes' => 1000000 - $value * 10000, 'minimum_vmaf' => $score, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1];
+    });
+    $audit = [];
+    $result = app(OptimizeTranscode::class)->handle([$plans[0]], $policy, $quality, $directory,
+        microtime(true) + 60, fn (): bool => false, function (array $update) use (&$audit): void {
+            $audit = array_replace($audit, $update);
+        });
+    expect($seen[0])->toBe(28)->and($seen)->not->toContain(51)
+        ->and(count($audit['optimization']['candidates']))->toBeLessThanOrEqual(8)
+        ->and($audit['optimization']['winner']['quality'])->toBeLessThan(38)
+        ->and(array_column($audit['optimization']['confirmations'], 'passes'))->toContain(false, true);
+    expect($result)->toBeInstanceOf(TranscodePlan::class);
+});
+
+it('investigates stronger compression when a quality pass is oversized and skips unqualified results', function (): void {
+    $seen = [];
+    [$plans, $policy, $quality, $directory] = optimizationFixture(function ($media, $plan) use (&$seen): array {
+        $value = $plan->quality->value;
+        $seen[] = $value;
+
+        return ['video_bytes' => 950000, 'minimum_vmaf' => $value <= 35 ? 97.0 : 80.0, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1];
+    });
+    $result = app(OptimizeTranscode::class)->handle([$plans[0]], $policy, $quality, $directory,
+        microtime(true) + 60, fn (): bool => false, fn () => null);
+    expect($seen[0])->toBe(28)->and(count($seen))->toBeLessThanOrEqual(8)
+        ->and($seen[1])->toBeGreaterThan($seen[0])->and($result)->toBeInstanceOf(SkippedTranscode::class);
+});
+
+it('reports the closest measured candidate when adjacent quality and size limits do not overlap', function (): void {
+    [$plans, $policy, $quality, $directory] = optimizationFixture(fn ($media, $plan): array => match ($plan->quality->value) {
+        28 => ['video_bytes' => 600000, 'minimum_vmaf' => 92.0, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1],
+        26 => ['video_bytes' => 800000, 'minimum_vmaf' => 95.0, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1],
+        25 => ['video_bytes' => 900000, 'minimum_vmaf' => 95.5, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1],
+        default => throw new RuntimeException('Unnecessary distant probe'),
+    });
+    $audit = [];
+    $result = app(OptimizeTranscode::class)->handle([$plans[0]], $policy, $quality, $directory,
+        microtime(true) + 60, fn (): bool => false, function (array $update) use (&$audit): void {
+            $audit = array_replace($audit, $update);
+        });
+    if (! $result instanceof SkippedTranscode) {
+        throw new RuntimeException('Expected a measured conflict');
+    }
+    expect($result->reason)->toBe('quality_size_conflict')
+        ->and($audit['optimization']['closest']['quality'])->toBe(26)
+        ->and($audit['optimization']['closest']['quality_gap'])->toBe(1.0)
+        ->and($audit['optimization']['search_decisions'])->not->toBeEmpty();
+});

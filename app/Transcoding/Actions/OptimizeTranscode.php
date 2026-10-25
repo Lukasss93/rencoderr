@@ -7,9 +7,11 @@ use App\QualityControl\QualityWorkspace;
 use App\QualityControl\SampleWindows;
 use App\Transcoding\EncoderQuality;
 use App\Transcoding\OptimizationLimit;
+use App\Transcoding\OptimizationMeasurements;
 use App\Transcoding\OptimizationMedia;
 use App\Transcoding\OptimizationSamples;
 use App\Transcoding\OptimizationSearch;
+use App\Transcoding\OptimizationSearchPolicy;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\TranscodePlan;
 use Closure;
@@ -48,7 +50,7 @@ class OptimizeTranscode
             return $stop();
         };
         $this->media->configure($directory, $deadline, $policy['temporary_bytes'], $guard, $progress);
-        $audit = ['enabled' => true, 'policy' => $policy, 'quality_policy' => $qualityPolicy, 'candidates' => [], 'limits' => [], 'winner' => null, 'non_monotonic' => false, 'termination' => [], 'confirmations' => []];
+        $audit = ['enabled' => true, 'policy' => $policy, 'quality_policy' => $qualityPolicy, 'candidates' => [], 'limits' => [], 'winner' => null, 'non_monotonic' => false, 'termination' => [], 'confirmations' => [], 'closest_by_encoder' => [], 'search_decisions' => [], 'closest' => null];
         $winner = null;
         try {
             $progress(['phase' => 'measuring_source']);
@@ -80,8 +82,9 @@ class OptimizeTranscode
             $audit['source_video_bytes'] = $inventory[$videoIndex] ?? null;
             $audit['retained_non_video_bytes'] = $nonVideo;
             $audit['maximum_bytes'] = $maximum;
-            if ($nonVideo >= $maximum) {
-                return new SkippedTranscode('retained_streams_exceed_budget', 'Retained audio, subtitles and attachments already exceed the maximum output size.');
+            $fixedBytes = (int) ceil($nonVideo + $plan->sourceSizeBytes * $policy['mux_reserve']);
+            if ($fixedBytes >= $maximum) {
+                return new SkippedTranscode('retained_streams_exceed_budget', 'Retained audio, subtitles, attachments and the container reserve exceed the maximum output size.');
             }
             $progress(['phase' => 'sampling', 'optimization' => $audit]);
             $searchWindows = $this->windows->forDuration($duration, 'sampled', $policy['positions'], $policy['sample_seconds']);
@@ -92,15 +95,22 @@ class OptimizeTranscode
             $confirmation = $confirmationWindows === $searchWindows ? $references
                 : $this->samples->prepare($this->media, $plan, $video, $confirmationWindows, $directory, 'confirmation');
             $firstDeadline = microtime(true) + max(0, $deadline - microtime(true)) / count($plans);
+            $conflict = false;
             foreach ($plans as $index => $encoderPlan) {
-                $this->media->deadline($index === 0 ? $firstDeadline : $deadline);
-                $eligible = [];
+                $encoderDeadline = $index === 0 ? $firstDeadline : $deadline;
+                $searchDeadline = microtime(true) + max(0, $encoderDeadline - microtime(true)) * (1 - $policy['confirmation_fraction']);
+                $measurements = new OptimizationMeasurements;
+                $searchPolicy = new OptimizationSearchPolicy(
+                    new EncoderQuality($encoderPlan->encoder, $policy['starting_quality'][$encoderPlan->encoder->value]),
+                    $policy['maximum_candidates'], $policy['quality_floor'], $maximum, $fixedBytes);
                 try {
-                    $starting = EncoderQuality::starting($encoderPlan->encoder, $encoderPlan->settings->videoQuality);
-                    $this->search->run($starting->value, 0, EncoderQuality::maximum($encoderPlan->encoder), $policy['maximum_candidates'],
-                        function (int $value) use ($encoderPlan, $references, $qualityPolicy, $directory, $duration, $policy, $nonVideo, $maximum, &$audit, &$eligible, $progress): array {
+                    $this->search->run($searchPolicy,
+                        function (int $value) use ($encoderPlan, $references, $qualityPolicy, $directory, $duration, $policy, $nonVideo, &$audit, &$measurements, $encoderDeadline, $searchDeadline, $progress): array {
+                            $this->media->deadline($measurements->confirming ? $encoderDeadline : $searchDeadline);
+                            $progress(['phase' => 'sampling']);
                             $candidate = $encoderPlan->withQuality(new EncoderQuality($encoderPlan->encoder, $value));
                             $measurement = $this->samples->measure($this->media, $candidate, $references, $qualityPolicy, $directory, $duration);
+                            $measurements->record($value, $measurement);
                             $bytes = $this->estimate($measurement['video_bytes'], $nonVideo, $candidate->sourceSizeBytes, $policy);
                             $record = ['encoder' => $candidate->encoder->value, 'quality' => $value, 'bytes' => $bytes,
                                 'passes' => $measurement['minimum_vmaf'] >= $policy['quality_floor'], 'measurements' => $measurement];
@@ -111,46 +121,67 @@ class OptimizeTranscode
                                 }
                             }
                             $audit['candidates'][] = $record;
-                            if ($record['passes'] && $bytes <= $maximum) {
-                                $eligible[] = $record;
-                            }
-                            $progress(['phase' => 'sampling', 'optimization' => $audit]);
+                            $progress(['optimization' => $audit]);
 
-                            return $record;
-                        }, function (string $reason) use (&$audit, $encoderPlan): void {
+                            return ['quality' => $value, 'bytes' => $bytes, 'vmaf' => (float) $measurement['minimum_vmaf']];
+                        },
+                        function (array $point) use ($encoderPlan, $confirmation, $qualityPolicy, $directory, $duration, $policy, $nonVideo, $maximum, &$audit, &$winner, &$measurements, $encoderDeadline, $progress): array {
+                            $measurements->confirming = true;
+                            $this->media->deadline($encoderDeadline);
+                            $progress(['phase' => 'confirming']);
+                            $value = $point['quality'];
+                            $candidate = $encoderPlan->withQuality(new EncoderQuality($encoderPlan->encoder, $value));
+                            $measured = $this->samples->measure($this->media, $candidate, $confirmation, $qualityPolicy, $directory, $duration);
+                            $bytes = max($point['bytes'], $this->estimate($measured['video_bytes'], $nonVideo, $candidate->sourceSizeBytes, $policy));
+                            $score = min($point['vmaf'], $measured['minimum_vmaf']);
+                            $confirmed = $score >= $policy['quality_floor'] && $bytes <= $maximum;
+                            $audit['confirmations'][] = ['encoder' => $candidate->encoder->value, 'quality' => $value, 'bytes' => $bytes, 'passes' => $confirmed, 'measurements' => $measured];
+                            $margin = $score - $policy['quality_floor'];
+                            $training = $measurements->forQuality($value);
+                            $seconds = $measured['encode_seconds'] + $training['encode_seconds'];
+                            if ($confirmed && ($winner === null || [$bytes, -$margin, $seconds]
+                                < [$audit['winner']['bytes'] ?? PHP_INT_MAX, -($audit['winner']['quality_margin'] ?? 0), $audit['winner']['encode_seconds'] ?? INF])) {
+                                $winner = $candidate;
+                                $audit['winner'] = ['encoder' => $candidate->encoder->value, 'quality' => $value, 'bytes' => $bytes,
+                                    'confirmed' => true, 'quality_margin' => $margin, 'encode_seconds' => $seconds,
+                                    'estimated_savings_percent' => 100 * (1 - $bytes / $candidate->sourceSizeBytes)];
+                            }
+                            $progress(['optimization' => $audit]);
+
+                            return ['quality' => $value, 'bytes' => $bytes, 'vmaf' => (float) $score];
+                        }, function (string $reason) use (&$audit, $encoderPlan, $measurements): void {
+                            $measurements->termination = $reason;
                             $audit['termination'][$encoderPlan->encoder->value] = $reason;
                             if ($reason === 'candidate_limit') {
                                 $audit['limits'][] = $encoderPlan->encoder->value.': candidate limit reached';
                             }
+                        }, function (array $event) use (&$audit, $encoderPlan, $progress): void {
+                            if ($event['phase'] === 'search') {
+                                $audit['search_decisions'][] = ['encoder' => $encoderPlan->encoder->value, ...$event];
+                            } elseif ($event['phase'] === 'limit') {
+                                $audit['limits'][] = $encoderPlan->encoder->value.': '.$event['message'];
+                            } elseif (is_array($event['closest'] ?? null)) {
+                                $audit['closest_by_encoder'][$encoderPlan->encoder->value] = ['encoder' => $encoderPlan->encoder->value, ...$event['closest']];
+                                $closest = array_values($audit['closest_by_encoder']);
+                                usort($closest, fn (array $a, array $b): int => [(int) ! $a['within_size_budget'], $a['within_size_budget'] ? -$a['vmaf'] : $a['bytes'], $a['within_size_budget'] ? $a['bytes'] : -$a['vmaf']]
+                                    <=> [(int) ! $b['within_size_budget'], $b['within_size_budget'] ? -$b['vmaf'] : $b['bytes'], $b['within_size_budget'] ? $b['bytes'] : -$b['vmaf']]);
+                                $audit['closest'] = $closest[0];
+                            }
+                            $progress(['optimization' => $audit]);
                         });
-                    usort($eligible, fn (array $a, array $b): int => [$a['bytes'], -$a['measurements']['minimum_vmaf'], $a['measurements']['encode_seconds']]
-                        <=> [$b['bytes'], -$b['measurements']['minimum_vmaf'], $b['measurements']['encode_seconds']]);
-                    foreach ($eligible as $record) {
-                        $progress(['phase' => 'confirming']);
-                        $candidate = $encoderPlan->withQuality(new EncoderQuality($encoderPlan->encoder, $record['quality']));
-                        $measured = $this->samples->measure($this->media, $candidate, $confirmation, $qualityPolicy, $directory, $duration);
-                        $bytes = max($record['bytes'], $this->estimate($measured['video_bytes'], $nonVideo, $candidate->sourceSizeBytes, $policy));
-                        $confirmed = $measured['minimum_vmaf'] >= $policy['quality_floor'] && $bytes <= $maximum;
-                        $audit['confirmations'][] = ['encoder' => $candidate->encoder->value, 'quality' => $record['quality'], 'bytes' => $bytes, 'passes' => $confirmed, 'measurements' => $measured];
-                        $margin = min($measured['minimum_vmaf'], $record['measurements']['minimum_vmaf']) - $policy['quality_floor'];
-                        $seconds = $measured['encode_seconds'] + $record['measurements']['encode_seconds'];
-                        if ($confirmed && ($winner === null || [$bytes, -$margin, $seconds]
-                            < [$audit['winner']['bytes'] ?? PHP_INT_MAX, -($audit['winner']['quality_margin'] ?? 0), $audit['winner']['encode_seconds'] ?? INF])) {
-                            $winner = $candidate;
-                            $audit['winner'] = ['encoder' => $candidate->encoder->value, 'quality' => $record['quality'], 'bytes' => $bytes,
-                                'confirmed' => true, 'quality_margin' => $margin, 'encode_seconds' => $seconds,
-                                'estimated_savings_percent' => 100 * (1 - $bytes / $plan->sourceSizeBytes)];
-                        }
-                        $progress(['optimization' => $audit]);
-                    }
                 } catch (OptimizationLimit $limit) {
                     $audit['limits'][] = $encoderPlan->encoder->value.': '.$limit->getMessage();
                 }
+                $conflict = $conflict || $measurements->termination === 'quality_size_conflict';
+            }
+
+            if ($winner === null && $audit['limits'] === [] && $conflict) {
+                return new SkippedTranscode('quality_size_conflict', 'Adjacent measured settings straddle the size limit without meeting the quality requirement.');
             }
 
             return $winner ?? ($audit['limits'] !== []
                 ? new SkippedTranscode('optimization_inconclusive', 'Preparation limits were reached without a confirmed candidate.')
-                : new SkippedTranscode('no_acceptable_candidate', 'No measured candidate met quality and savings requirements in the explored search boundary.'));
+                : new SkippedTranscode('no_acceptable_candidate', 'No measured candidate met quality and savings requirements within the measured adaptive search.'));
         } catch (OptimizationLimit $limit) {
             $audit['limits'][] = $limit->getMessage();
 

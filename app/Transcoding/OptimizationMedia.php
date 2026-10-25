@@ -83,7 +83,7 @@ class OptimizationMedia
             $this->guard(...), $consume ?? function (): void {},
             fn (string $tail) => ($this->progress)(['diagnostic_tail' => $tail]), $this->directory);
         $this->guard();
-        if ($result->exitCode !== 0 || ($strict && trim($result->diagnosticTail) !== '')) {
+        if ($result->exitCode !== 0 || ($strict && trim($result->errorDiagnostics()) !== '')) {
             throw new RuntimeException('Optimization media command failed: '.$result->exitCode.'. '.$result->diagnosticTail);
         }
     }

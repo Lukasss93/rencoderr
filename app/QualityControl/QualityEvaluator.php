@@ -158,7 +158,7 @@ class QualityEvaluator
                 function (string $tail) use ($progress, &$measuredFrames, $completeFrames, $totalFrames, $range): void {
                     $progress(['diagnostic_tail' => $tail, 'progress_percent' => min(99.9, 100 * ($completeFrames + min($range['frames'], $measuredFrames)) / $totalFrames)]);
                 }, $files['directory']);
-            if ($result->exitCode !== 0 || trim($result->diagnosticTail) !== '') {
+            if ($result->exitCode !== 0 || trim($result->errorDiagnostics()) !== '') {
                 throw new RuntimeException('VMAF comparison failed with exit code '.$result->exitCode.'. '.$result->diagnosticTail);
             }
             $score = $this->scores->read($files['directory'].'/'.$log, $range['frames']);
@@ -227,7 +227,7 @@ class QualityEvaluator
                 $timeline->push($chunk);
                 $hdr->push($chunk);
             }, fn (string $tail) => $progress(['diagnostic_tail' => $tail]));
-        if ($result->exitCode !== 0 || trim($result->diagnosticTail) !== '') {
+        if ($result->exitCode !== 0 || trim($result->errorDiagnostics()) !== '') {
             throw new RuntimeException('Frame inspection failed. '.$result->diagnosticTail);
         }
         $timeline->finish();
@@ -247,7 +247,7 @@ class QualityEvaluator
             '-select_streams', (string) $index, '-show_packets', '-show_entries', 'packet=pts_time,duration_time', '-of', 'flat', $path],
             $this->remaining($check), $stop, fn (string $chunk) => $span->push($chunk),
             fn (string $tail) => $progress(['diagnostic_tail' => $tail]));
-        if ($result->exitCode !== 0 || trim($result->diagnosticTail) !== '') {
+        if ($result->exitCode !== 0 || trim($result->errorDiagnostics()) !== '') {
             throw new RuntimeException('Audio packet inspection failed. '.$result->diagnosticTail);
         }
 
@@ -283,7 +283,7 @@ class QualityEvaluator
             }
             $text .= $chunk;
         }, fn (string $tail) => $progress(['diagnostic_tail' => $tail]));
-        if ($result->exitCode !== 0 || trim($result->diagnosticTail) !== '') {
+        if ($result->exitCode !== 0 || trim($result->errorDiagnostics()) !== '') {
             throw new RuntimeException('Media inspection failed with exit code '.$result->exitCode.'. '.$result->diagnosticTail);
         }
 

@@ -124,6 +124,7 @@ RUN set -eux; \
     php -r 'foreach (["swoole", "redis", "pcntl", "posix", "pdo_sqlite", "mbstring", "dom", "xmlreader", "bcmath", "intl", "zip"] as $extension) { if (! extension_loaded($extension)) { fwrite(STDERR, "Missing extension: $extension\n"); exit(1); } }'; \
     runuser -u rencoderr -- /opt/rencoderr/verify-ffmpeg.sh
 ENV APP_NAME=Rencoderr APP_ENV=production APP_DEBUG=false APP_URL=http://localhost:8000 \
+    XDG_CACHE_HOME=/config/storage/cache \
     LOG_CHANNEL=stderr LOG_LEVEL=info LOG_STDERR_STREAM=/run/rencoderr/application.log \
     DB_CONNECTION=sqlite DB_DATABASE=/config/database/database.sqlite DB_JOURNAL_MODE=WAL DB_BUSY_TIMEOUT=5000 \
     QUEUE_CONNECTION=redis REDIS_QUEUE_RETRY_AFTER=1860 REDIS_HOST=127.0.0.1 REDIS_CLIENT=phpredis \

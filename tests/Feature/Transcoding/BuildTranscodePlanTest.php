@@ -418,3 +418,21 @@ it('uses identical quality and video arguments for samples and the full encode',
     expect(implode(' ', $chosen->arguments))->toContain('-crf 33')
         ->and(implode(' ', $chosen->sampleArguments('/cached/reference.mkv')))->toContain('-i /cached/reference.mkv', '-crf 33', '-pix_fmt:v:0 +yuv420p');
 });
+
+it('keeps decoding on the saved hardware device through quality selection while cached FFV1 stays on CPU', function (string $backend, string $device, string $api): void {
+    planEncoders(['libx265', 'hevc_'.$backend], [$backend => $device]);
+    app(AccelerationPreference::class)->save($backend, $device);
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(), new MediaSettings);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    $chosen = $plan->withQuality(new EncoderQuality($plan->encoder, 30));
+    expect(array_count_values($chosen->arguments)['-init_hw_device'] ?? 0)->toBe(1);
+    expect($chosen->decoding?->toArray())->toBe(['backend' => $backend, 'device' => $device])
+        ->and(implode(' ', $chosen->arguments))->toContain('-hwaccel:0 '.$api, '-hwaccel_output_format:0 nv12')
+        ->and($chosen->sampleArguments('/reference.mkv'))->not->toContain('-hwaccel:0');
+})->with([
+    ['vaapi', '/dev/dri/renderD129', 'vaapi'],
+    ['qsv', '/dev/dri/renderD129', 'qsv'],
+    ['nvenc', '1', 'cuda'],
+]);

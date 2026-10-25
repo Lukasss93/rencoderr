@@ -74,7 +74,7 @@ A library can have one active run at a time. Missing files and files with stale 
 
 ### Media settings
 
-The **H.265 — Save storage** and **AV1 — Save storage** presets select the codec, a starting quality hint, and Slow encoding. Apply a preset, then save the settings. Audio, subtitles, high dynamic range (HDR), and quality safeguards remain separately configurable.
+The **H.265 — Save storage** and **AV1 — Save storage** presets select the codec, the fixed quality for direct encoding, and Slow encoding. Apply a preset, then save the settings. Audio, subtitles, high dynamic range (HDR), and quality safeguards remain separately configurable.
 
 Libraries inherit global preferences until you save an override. Settings are resolved when each file starts; changes apply to subsequent files.
 
@@ -88,9 +88,9 @@ VMAF measures perceptual video similarity. It helps screen results, but visual i
 
 ### Encoding and quality control
 
-With both savings and video-quality verification enabled, Rencoderr measures representative samples and searches for the smallest acceptable output using the selected acceleration backend. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality hint instead.
+With both savings and video-quality verification enabled, Rencoderr measures representative samples and starts near the selected encoder’s normal quality range and adapts subsequent steps using measured VMAF and predicted size. It refines the quality/size boundaries and confirms candidates before a full encode. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality instead.
 
-Preparation has limits on time, candidate count, and temporary storage. If it cannot confirm a suitable candidate, the file is skipped with a reason. Each request performs at most one full encode.
+Preparation has limits on time, candidate count, and temporary storage. If it cannot confirm a suitable candidate, the file is skipped with a reason and the closest measured result. Each request performs at most one full encode.
 
 Completed encodes receive a separate quality check covering retained streams, frame timing, actual file size, and video quality. A poor measured segment cannot be hidden by a high overall average. The interface distinguishes a rejected result from a check that failed to finish; failed or cancelled checks can be retried.
 
@@ -122,6 +122,8 @@ For NVIDIA, install the NVIDIA Container Toolkit on the host, add `NVIDIA_DRIVER
               count: all
               capabilities: [gpu]
 ```
+
+Supported H.264, H.265, and AV1 inputs use GPU decoding on the selected VAAPI, Quick Sync, or NVIDIA device during preparation, scoring, and encoding. Lossless reference caching, structural frame inspection, and VMAF scoring still use CPU.
 
 Apply the changes with `docker compose up -d`. Open **Settings → Status** to refresh detection, test encoders, and choose acceleration:
 

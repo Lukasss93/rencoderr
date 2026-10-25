@@ -45,3 +45,16 @@ it('freezes the model and execution limit even for direct encodes with video ver
     expect($policy['model_sha256'])->toBe(hash('sha256', '{}'))
         ->and($policy['execution_limit_seconds'])->toBe(4321);
 });
+
+it('freezes configurable encoder starting points and confirmation time reserves', function (): void {
+    config(['transcoding.optimization.starting_quality.hevc_vaapi' => 30]);
+    $policy = app(OptimizationPolicy::class)->snapshot(new MediaSettings);
+    config(['transcoding.optimization.starting_quality.hevc_vaapi' => 26]);
+    expect($policy['starting_quality']['hevc_vaapi'])->toBe(30)
+        ->and($policy['confirmation_fraction'])->toBe(0.25)->and($policy['strategy'])->toBe('adaptive_quality');
+});
+
+it('rejects invalid starting points and unusable confirmation reserves', function (string $key, int|float $value): void {
+    config(['transcoding.optimization.'.$key => $value]);
+    expect(fn () => app(OptimizationPolicy::class)->snapshot(new MediaSettings))->toThrow(RuntimeException::class);
+})->with([['starting_quality.hevc_vaapi', 52], ['confirmation_fraction', 0], ['confirmation_fraction', 1]]);

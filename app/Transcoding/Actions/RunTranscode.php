@@ -103,6 +103,7 @@ class RunTranscode
         }
         $output = $this->staging->prepare($item->id, (string) $item->attempt_token);
         $quality = $this->qualityPolicy->forEncoding($item);
+        $quality['decoding'] = $plan->decoding?->toArray() ?? ['backend' => null, 'device' => null];
         $policy = $this->optimizationPolicy->snapshot($plan->settings);
         $this->updateOwned($current, ['optimization' => ['enabled' => $policy['enabled'], 'quality_policy' => $quality]]);
         if ($policy['enabled']) {

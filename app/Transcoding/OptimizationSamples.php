@@ -2,6 +2,7 @@
 
 namespace App\Transcoding;
 
+use App\Ffmpeg\HardwareDecoding;
 use App\QualityControl\FrameTimeline;
 use App\QualityControl\SampleScorer;
 use App\QualityControl\StreamContract;
@@ -23,8 +24,12 @@ class OptimizationSamples
             $seek = max(0.0, $window['start'] - 2);
             $length = $window['end'] - $seek;
             $path = $directory.'/'.$group.'-'.$index.'.mkv';
-            $media->execute([$media->binary(), '-nostdin', '-v', 'error', '-xerror', '-noautorotate', '-ss', sprintf('%.9F', $seek),
+            $decoding = $plan->decoding ?? new HardwareDecoding;
+            $decodeInput = $decoding->inputArguments($video);
+            $media->execute([$media->binary(), '-nostdin', '-v', 'error', '-xerror', ...($decodeInput !== [] ? $decoding->deviceArguments() : []),
+                ...$decodeInput, '-noautorotate', '-ss', sprintf('%.9F', $seek),
                 '-i', $plan->sourcePath, '-t', sprintf('%.9F', $length), '-map', '0:'.$video['index'], '-c:v', 'ffv1', '-level', '3',
+                '-filter:v:0', 'scale=iw:ih:flags=bitexact,format='.$video['pix_fmt'],
                 '-pix_fmt', '+'.$video['pix_fmt'], '-fps_mode', 'passthrough', '-enc_time_base', 'demux', '-f', 'matroska', $path]);
             $probe = $media->probe($path);
             $timeline = $this->timeline($media, $path, $probe['streams'][0], $path.'.frames');

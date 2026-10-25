@@ -93,7 +93,8 @@ it('keeps optimization and the full encode on the selected acceleration backend'
         new Encoder($software->value, $codec->value, EncoderType::VIDEO, 'Software'),
     ], backends: ['vaapi' => new Backend('vaapi', 'VAAPI', 1, true, 'Available')]));
     $optimizer = Mockery::mock(OptimizeTranscode::class);
-    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans) use ($expected) {
+    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans, array $policy, array $quality) use ($expected) {
+        expect($quality['decoding']['backend'])->toBe($expected->backend()?->value);
         expect($plans)->toHaveCount(1)->and($plans[0]->encoder)->toBe($expected);
 
         return $plans[0];

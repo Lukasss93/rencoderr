@@ -4,6 +4,7 @@ namespace App\Transcoding;
 
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\Enums\VideoEncoder;
+use App\Ffmpeg\HardwareDecoding;
 use Carbon\CarbonImmutable;
 
 readonly class TranscodePlan
@@ -27,6 +28,7 @@ readonly class TranscodePlan
         public array $inputArguments = [],
         public array $videoArguments = [],
         public ?EncoderQuality $quality = null,
+        public ?HardwareDecoding $decoding = null,
     ) {}
 
     public function withQuality(EncoderQuality $quality): self
@@ -37,7 +39,7 @@ readonly class TranscodePlan
 
         return new self($this->encoder, $this->settings, $this->sourcePath, $this->sourceSizeBytes, $this->sourceModifiedAt,
             [...$this->prefix, ...$quality->arguments(), ...$this->videoArguments], $this->streamDecisions,
-            $this->prefix, $this->inputArguments, $this->videoArguments, $quality);
+            $this->prefix, $this->inputArguments, $this->videoArguments, $quality, $this->decoding);
     }
 
     /** @return list<string> */

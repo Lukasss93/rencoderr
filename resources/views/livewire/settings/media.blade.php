@@ -52,9 +52,9 @@
                 </x-media.setting>
                 <x-media.setting field="video_quality" :library-mode="$library !== null"
                     :inherited="$form->isInherited('video_quality')" :global-value="$globalSettings?->videoQuality->label() ?? ''">
-                    <x-select.native label="Starting quality hint (advanced)" wire:model="form.values.video_quality"
+                    <x-select.native label="Fixed quality (direct encoding)" wire:model="form.values.video_quality"
                         :disabled="$form->isInherited('video_quality')"
-                        :options="array_map(fn (VideoQuality $choice) => ['label' => $choice->label(), 'value' => $choice->value], VideoQuality::cases())" hint="Automatic optimization searches for the smallest acceptable output. The perceptual quality threshold controls acceptance. This hint becomes the fixed quality when savings or quality verification is disabled." />
+                        :options="array_map(fn (VideoQuality $choice) => ['label' => $choice->label(), 'value' => $choice->value], VideoQuality::cases())" hint="Used when savings or quality verification is disabled. Automatic optimization chooses quality using measured perceptual similarity and predicted output size." />
                 </x-media.setting>
                 <x-media.setting field="encoding_speed" :library-mode="$library !== null"
                     :inherited="$form->isInherited('encoding_speed')" :global-value="$globalSettings?->encodingSpeed->label() ?? ''">

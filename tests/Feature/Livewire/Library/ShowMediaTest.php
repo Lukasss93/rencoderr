@@ -124,3 +124,12 @@ it('shows estimated storage savings without claiming disk space has been reclaim
     Livewire::test(ShowMedia::class, ['mediaFile' => $file])->assertSee('Confirming')->assertSee('45.0%')
         ->assertSee('1 candidates measured')->assertSee('Reclaimed disk space: 0 bytes');
 });
+
+it('shows the closest measured quality and size when adaptive optimization cannot qualify an output', function (): void {
+    $file = transcodeSource();
+    MediaTranscode::factory()->for($file)->create(['status' => TaskStatus::SKIPPED,
+        'optimization' => ['enabled' => true, 'policy' => ['quality_floor' => 93.0],
+            'closest' => ['encoder' => 'hevc_vaapi', 'quality' => 26, 'vmaf' => 90.5, 'bytes' => 1370000000, 'within_size_budget' => true]]]);
+    Livewire::test(ShowMedia::class, ['mediaFile' => $file])->assertSee('Closest measured result: hevc_vaapi')
+        ->assertSee('90.50')->assertSee('required 93.00')->assertSee('Within size budget');
+});
