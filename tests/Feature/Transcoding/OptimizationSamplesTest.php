@@ -35,6 +35,6 @@ it('uses hardware decoding for extraction and explicitly preserves the lossless 
     });
     app()->instance(OptimizationMedia::class, $media);
     $samples = app(OptimizationSamples::class)->prepare(app(OptimizationMedia::class), $plan,
-        ['index' => 3, 'codec_name' => 'hevc', 'pix_fmt' => 'yuv420p10le'], [['start' => 0.0, 'end' => 0.041666667]], $directory, 'reference');
+        ['index' => 3, 'codec_name' => 'hevc', 'pix_fmt' => 'yuv420p10le'], [['start' => 0.0, 'end' => 0.041666667]], $directory);
     expect($samples)->toHaveCount(1)->and($samples[0]['timeline']->duration())->toEqualWithDelta(1 / 24, 0.000001);
 });

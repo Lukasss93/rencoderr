@@ -41,6 +41,23 @@ class Dashboard extends Component
 
     public function transcodeLibrary(RequestTranscodeRun $requests): void
     {
+        if ($this->library === '') {
+            $libraries = Library::query()->lazyById();
+            $requested = 0;
+            foreach ($libraries as $library) {
+                $requests->handle($library);
+                $requested++;
+            }
+            if ($requested === 0) {
+                $this->addError('library', 'Add a library before requesting transcodes.');
+
+                return;
+            }
+            $this->toast()->info('Library transcodes requested.', 'Existing active runs are reused. Follow progress on the Queue page.')->send();
+
+            return;
+        }
+
         $this->validate(['library' => ['required', 'integer', 'exists:libraries,id']]);
         $run = $requests->handle(Library::query()->findOrFail((int) $this->library));
         $this->toast()->info($run->wasRecentlyCreated ? 'Library transcode requested.' : 'This library already has an active transcode run.', 'Follow its progress on the Queue page.')->send();

@@ -17,13 +17,13 @@ class OptimizationSamples
      * @param  array<string, mixed>  $video
      * @return list<array{path: string, probe: array<string, mixed>, timeline: FrameTimeline, start: float, end: float}>
      */
-    public function prepare(OptimizationMedia $media, TranscodePlan $plan, array $video, array $windows, string $directory, string $group): array
+    public function prepare(OptimizationMedia $media, TranscodePlan $plan, array $video, array $windows, string $directory): array
     {
         $samples = [];
         foreach ($windows as $index => $window) {
             $seek = max(0.0, $window['start'] - 2);
             $length = $window['end'] - $seek;
-            $path = $directory.'/'.$group.'-'.$index.'.mkv';
+            $path = $directory.'/reference-'.$index.'.mkv';
             $decoding = $plan->decoding ?? new HardwareDecoding;
             $decodeInput = $decoding->inputArguments($video);
             $media->execute([$media->binary(), '-nostdin', '-v', 'error', '-xerror', ...($decodeInput !== [] ? $decoding->deviceArguments() : []),

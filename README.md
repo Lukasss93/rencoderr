@@ -67,7 +67,7 @@ docker compose up -d
 
 1. Add a library, scan it, and wait for media inspection to finish.
 2. Choose global preferences under **Settings → Media**, or override individual settings for a library under **Settings → Libraries**.
-3. On the **Dashboard**, choose **Transcode library** or **Transcode** beside an individual file.
+3. On the **Dashboard**, choose **Transcode library** to process the selected library, or leave **All libraries** selected to process every library using its saved media settings. Existing active runs are reused, and search and availability filters do not limit these runs. Choose **Transcode** beside an individual file to process only that file.
 4. Follow encoding and quality-control progress on **Queue** or the file's detail page.
 
 A library can have one active run at a time. Missing files and files with stale inspection results need another scan before encoding. Library runs cover the entire library, including files hidden by Dashboard filters.
@@ -88,9 +88,9 @@ VMAF measures perceptual video similarity. It helps screen results, but visual i
 
 ### Encoding and quality control
 
-With both savings and video-quality verification enabled, Rencoderr measures representative samples and starts near the selected encoder’s normal quality range and adapts subsequent steps using measured VMAF and predicted size. It refines the quality/size boundaries and confirms candidates before a full encode. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality instead.
+With both savings and video-quality verification enabled, Rencoderr starts near the selected encoder’s normal quality range, measures representative samples, and adapts subsequent steps using measured VMAF and predicted size. It refines the quality/size boundaries and selects the smallest sampled candidate that meets both requirements before a full encode. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality instead.
 
-Preparation has limits on time, candidate count, and temporary storage. If it cannot confirm a suitable candidate, the file is skipped with a reason and the closest measured result. Each request performs at most one full encode.
+Preparation has limits on time, candidate count, and temporary storage. If it cannot find a suitable sampled candidate, the file is skipped with a reason and the closest measured result. Each request performs at most one full encode.
 
 Completed encodes receive a separate quality check covering retained streams, frame timing, actual file size, and video quality. A poor measured segment cannot be hidden by a high overall average. The interface distinguishes a rejected result from a check that failed to finish; failed or cancelled checks can be retried.
 

@@ -118,10 +118,10 @@ it('escapes stream titles and transcode diagnostics', function (): void {
 
 it('shows estimated storage savings without claiming disk space has been reclaimed', function (): void {
     $file = transcodeSource();
-    MediaTranscode::factory()->for($file)->create(['phase' => 'confirming', 'status' => TaskStatus::RUNNING,
+    MediaTranscode::factory()->for($file)->create(['phase' => 'sampling', 'status' => TaskStatus::RUNNING,
         'optimization' => ['enabled' => true, 'candidates' => [['quality' => 32]],
             'winner' => ['quality' => 32, 'encoder' => 'libx265', 'estimated_savings_percent' => 45.0]]]);
-    Livewire::test(ShowMedia::class, ['mediaFile' => $file])->assertSee('Confirming')->assertSee('45.0%')
+    Livewire::test(ShowMedia::class, ['mediaFile' => $file])->assertSee('Sampling')->assertSee('45.0%')
         ->assertSee('1 candidates measured')->assertSee('Reclaimed disk space: 0 bytes');
 });
 

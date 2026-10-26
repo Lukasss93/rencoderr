@@ -48,7 +48,40 @@ it('requires a valid selected library before starting a library transcode', func
 
     expect(TranscodeRun::query()->count())->toBe(0);
     Queue::assertNothingPushed();
-})->with(['', 'invalid', '999999']);
+})->with(['invalid', '999999']);
+
+it('starts all libraries regardless of inventory filters and reuses active runs', function (): void {
+    Queue::fake();
+    $busy = Library::factory()->create();
+    $available = Library::factory()->create();
+    $active = TranscodeRun::factory()->for($busy)->create(['status' => TaskStatus::RUNNING]);
+
+    $component = Livewire::test(Dashboard::class)
+        ->set('search', 'no matching file')->set('status', 'missing');
+    preg_match('/<button\b[^>]*wire:click="transcodeLibrary"[^>]*>/s', $component->html(), $button);
+    expect($button[0] ?? null)->toBeString();
+    expect($button[0] ?? null)->not->toMatch('/\sdisabled(?:[=\s>])/');
+    $component->call('transcodeLibrary')->assertHasNoErrors()
+        ->assertDispatched('ts-ui:toast', title: 'Library transcodes requested.');
+    $component->call('transcodeLibrary')->assertHasNoErrors();
+
+    expect(TranscodeRun::query()->count())->toBe(2)
+        ->and(TranscodeRun::query()->where('library_id', $busy->id)->sole()->id)->toBe($active->id)
+        ->and(TranscodeRun::query()->where('library_id', $available->id)->sole()->status)->toBe(TaskStatus::QUEUED);
+    Queue::assertPushed(QueueLibraryTranscodes::class, 1);
+});
+
+it('does not request library transcodes when no libraries exist', function (): void {
+    Queue::fake();
+
+    $component = Livewire::test(Dashboard::class);
+    preg_match('/<button\b[^>]*wire:click="transcodeLibrary"[^>]*>/s', $component->html(), $button);
+    expect($button[0] ?? null)->toBeString()->toMatch('/\sdisabled(?:[=\s>])/');
+    $component->call('transcodeLibrary')->assertHasErrors('library');
+
+    expect(TranscodeRun::query()->count())->toBe(0);
+    Queue::assertNothingPushed();
+});
 
 it('starts the whole selected library regardless of dashboard search or availability filters', function (): void {
     Queue::fake();

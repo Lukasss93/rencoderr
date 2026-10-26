@@ -109,7 +109,7 @@ class RunTranscode
         if ($policy['enabled']) {
             $directory = dirname($output).'/optimization';
             try {
-                $plan = $this->optimizer->handle([$plan], $policy, $quality, $directory,
+                $plan = $this->optimizer->handle($plan, $policy, $quality, $directory,
                     microtime(true) + $this->remaining($item), $this->stopCheck($item, $current),
                     function (array $update) use ($current): void {
                         if (strlen(json_encode($update, JSON_THROW_ON_ERROR)) > 262144) {

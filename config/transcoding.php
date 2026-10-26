@@ -13,7 +13,6 @@ return [
             'av1_qsv' => (int) env('TRANSCODE_OPTIMIZATION_AV1_QSV_START_QUALITY', 28),
             'av1_vaapi' => (int) env('TRANSCODE_OPTIMIZATION_AV1_VAAPI_START_QUALITY', 112),
         ],
-        'confirmation_fraction' => (float) env('TRANSCODE_OPTIMIZATION_CONFIRMATION_FRACTION', 0.25),
         'maximum_candidates' => (int) env('TRANSCODE_OPTIMIZATION_CANDIDATES', 8),
         'seconds' => (int) env('TRANSCODE_OPTIMIZATION_SECONDS', 1200),
         'temporary_bytes' => (int) env('TRANSCODE_OPTIMIZATION_TEMPORARY_BYTES', 4294967296),

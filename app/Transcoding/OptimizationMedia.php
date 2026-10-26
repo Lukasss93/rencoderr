@@ -38,11 +38,6 @@ class OptimizationMedia
         $this->progress = $progress;
     }
 
-    public function deadline(float $deadline): void
-    {
-        $this->deadline = $deadline;
-    }
-
     public function guard(): bool
     {
         if (($this->stop)()) {

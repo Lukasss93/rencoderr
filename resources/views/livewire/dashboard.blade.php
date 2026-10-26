@@ -34,12 +34,14 @@
                 @if ($activeRuns->has($selectedLibrary->id))
                     <p>A transcode run is already active for this library. Follow its progress on the Queue page.</p>
                 @endif
+            @elseif ($library === '' && count($libraryOptions) > 1)
+                <p>Transcode all eligible files across all libraries using each library's saved media settings. Existing active runs are reused. Search and availability filters do not limit the runs.</p>
             @else
-                <p>Select a library to start a library transcode, or transcode an individual file below.</p>
+                <p>Add or select a library to start a library transcode, or transcode an individual file below.</p>
             @endif
         </div>
         <x-button text="Transcode library" icon="film" wire:click="transcodeLibrary" loading="transcodeLibrary"
-            :disabled="! $selectedLibrary || $activeRuns->has($selectedLibrary->id)" />
+            :disabled="$selectedLibrary ? $activeRuns->has($selectedLibrary->id) : ($library !== '' || count($libraryOptions) === 1)" />
     </div>
     @error('library')
         <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>

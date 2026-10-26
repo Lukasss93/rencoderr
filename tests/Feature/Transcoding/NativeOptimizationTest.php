@@ -10,7 +10,7 @@ use App\Transcoding\TranscodePlan;
 use Carbon\CarbonImmutable;
 use Symfony\Component\Process\Process;
 
-it('searches real container encodes and confirms the selected quality before a full encode', function (string $scenario): void {
+it('searches real container samples and selects a passing quality before a full encode', function (string $scenario): void {
     $directory = mediaDirectory([]);
     $source = $directory.'/source.mkv';
     $pixel = $scenario === 'hdr' ? 'yuv420p10le' : 'yuv420p';
@@ -37,7 +37,7 @@ it('searches real container encodes and confirms the selected quality before a f
     $quality = ['mode' => 'sampled', 'positions' => [0.15, 0.5, 0.85], 'sample_seconds' => 30, 'model_path' => config('quality_control.model_path'),
         'width' => 320, 'height' => 180, 'duration_tolerance_seconds' => 0.5, 'media' => $settings->toArray(), 'threads' => 1];
     $audit = [];
-    $result = app(OptimizeTranscode::class)->handle([$plan], app(OptimizationPolicy::class)->snapshot($settings), $quality,
+    $result = app(OptimizeTranscode::class)->handle($plan, app(OptimizationPolicy::class)->snapshot($settings), $quality,
         $directory.'/preparation', microtime(true) + 120, fn (): bool => false, function (array $update) use (&$audit): void {
             $audit = array_replace($audit, $update);
         });
@@ -46,7 +46,7 @@ it('searches real container encodes and confirms the selected quality before a f
     }
     expect($result)->toBeInstanceOf(TranscodePlan::class)
         ->and($result->quality)->not->toBeNull()
-        ->and($audit['optimization']['winner']['confirmed'])->toBeTrue()
+        ->and($audit['optimization']['winner']['quality_margin'])->toBeGreaterThanOrEqual(0)
         ->and(count($audit['optimization']['candidates']))->toBeGreaterThanOrEqual(1)
         ->and($audit['optimization']['candidates'][0]['quality'])->toBe($audit['optimization']['policy']['starting_quality'][$encoder->value])
         ->and($audit['optimization']['policy']['strategy'])->toBe('adaptive_quality');
@@ -75,7 +75,7 @@ it('converts downloaded GPU surface layouts into lossless planar references with
     });
     app()->instance(OptimizationMedia::class, $fixtureMedia);
     $samples = app(OptimizationSamples::class)->prepare(app(OptimizationMedia::class), $plan,
-        ['index' => 0, 'codec_name' => 'rawvideo', 'pix_fmt' => $pixel], [['start' => 0.0, 'end' => 0.5]], $directory, 'reference');
+        ['index' => 0, 'codec_name' => 'rawvideo', 'pix_fmt' => $pixel], [['start' => 0.0, 'end' => 0.5]], $directory);
     $hashes = [];
     foreach ([$source, $samples[0]['path']] as $path) {
         $decoded = new Process(['ffmpeg', '-v', 'error', ...($path === $source ? $inputOptions : []), '-i', $path, '-map', '0:v:0', '-pix_fmt', $pixel, '-f', 'rawvideo', 'pipe:1'], timeout: 20);

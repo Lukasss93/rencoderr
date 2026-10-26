@@ -28,6 +28,7 @@ use App\Transcoding\Actions\RunTranscode;
 use App\Transcoding\EncoderQuality;
 use App\Transcoding\HdrInspection;
 use App\Transcoding\TranscodeInterrupted;
+use App\Transcoding\TranscodePlan;
 use App\Transcoding\TranscodeProcess;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -40,7 +41,7 @@ function executableTranscode(): MediaTranscode
     $modelDirectory = mediaDirectory(['model.json' => '{}']);
     config(['quality_control.model_path' => $modelDirectory.'/model.json']);
     $optimizer = Mockery::mock(OptimizeTranscode::class);
-    $optimizer->shouldReceive('handle')->andReturnUsing(fn (array $plans) => $plans[0]);
+    $optimizer->shouldReceive('handle')->andReturnUsing(fn (TranscodePlan $plan) => $plan);
     app()->instance(OptimizeTranscode::class, $optimizer);
     Queue::fake();
     Storage::fake('transcodes');
@@ -60,11 +61,11 @@ function executableTranscode(): MediaTranscode
 it('optimizes before the sole full encode and persists its chosen arguments', function (): void {
     $item = executableTranscode();
     $optimizer = Mockery::mock(OptimizeTranscode::class);
-    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans, array $policy, array $quality, string $directory, float $deadline, Closure $stop, Closure $progress) {
+    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (TranscodePlan $plan, array $policy, array $quality, string $directory, float $deadline, Closure $stop, Closure $progress) {
         expect($policy['enabled'])->toBeTrue()->and($quality['media']['minimum_vmaf'])->toEqual(95.0);
-        $progress(['phase' => 'confirming', 'optimization' => ['quality_policy' => $quality, 'winner' => ['quality' => 34]]]);
+        $progress(['phase' => 'sampling', 'optimization' => ['quality_policy' => $quality, 'winner' => ['quality' => 34]]]);
 
-        return $plans[0]->withQuality(new EncoderQuality($plans[0]->encoder, 34));
+        return $plan->withQuality(new EncoderQuality($plan->encoder, 34));
     });
     app()->instance(OptimizeTranscode::class, $optimizer);
     $runner = Mockery::mock(TranscodeProcess::class);
@@ -93,11 +94,11 @@ it('keeps optimization and the full encode on the selected acceleration backend'
         new Encoder($software->value, $codec->value, EncoderType::VIDEO, 'Software'),
     ], backends: ['vaapi' => new Backend('vaapi', 'VAAPI', 1, true, 'Available')]));
     $optimizer = Mockery::mock(OptimizeTranscode::class);
-    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans, array $policy, array $quality) use ($expected) {
+    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (TranscodePlan $plan, array $policy, array $quality) use ($expected) {
         expect($quality['decoding']['backend'])->toBe($expected->backend()?->value);
-        expect($plans)->toHaveCount(1)->and($plans[0]->encoder)->toBe($expected);
+        expect($plan->encoder)->toBe($expected);
 
-        return $plans[0];
+        return $plan;
     });
     app()->instance(OptimizeTranscode::class, $optimizer);
     $runner = Mockery::mock(TranscodeProcess::class);
@@ -302,14 +303,14 @@ it('skips frame-only dynamic HDR before encoding when preservation is requested'
 it('does not launch the full encode when preparation is cancelled or loses its request token', function (string $scenario): void {
     $item = executableTranscode();
     $optimizer = Mockery::mock(OptimizeTranscode::class);
-    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (array $plans, array $policy, array $quality, string $directory, float $deadline, Closure $stop, Closure $progress) use ($item, $scenario) {
+    $optimizer->shouldReceive('handle')->once()->andReturnUsing(function (TranscodePlan $plan, array $policy, array $quality, string $directory, float $deadline, Closure $stop, Closure $progress) use ($item, $scenario) {
         if ($scenario === 'cancel') {
             app(CancelTranscodeRun::class)->handle($item->run);
             expect($stop())->toBeTrue();
-            throw new MediaProcessInterrupted('Cancelled during confirmation');
+            throw new MediaProcessInterrupted('Cancelled during sampling');
         }
         $item->update(['request_token' => (string) Str::uuid(), 'phase' => 'replacement']);
-        $progress(['phase' => 'confirming']);
+        $progress(['phase' => 'sampling']);
         throw new RuntimeException('A stale attempt must never publish progress');
     });
     app()->instance(OptimizeTranscode::class, $optimizer);
