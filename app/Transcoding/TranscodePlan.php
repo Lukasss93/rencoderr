@@ -29,6 +29,7 @@ readonly class TranscodePlan
         public array $videoArguments = [],
         public ?EncoderQuality $quality = null,
         public ?HardwareDecoding $decoding = null,
+        public OutputContainer $container = OutputContainer::MKV,
     ) {}
 
     public function withQuality(EncoderQuality $quality): self
@@ -39,7 +40,7 @@ readonly class TranscodePlan
 
         return new self($this->encoder, $this->settings, $this->sourcePath, $this->sourceSizeBytes, $this->sourceModifiedAt,
             [...$this->prefix, ...$quality->arguments(), ...$this->videoArguments], $this->streamDecisions,
-            $this->prefix, $this->inputArguments, $this->videoArguments, $quality, $this->decoding);
+            $this->prefix, $this->inputArguments, $this->videoArguments, $quality, $this->decoding, $this->container);
     }
 
     /** @return list<string> */

@@ -15,6 +15,7 @@ use App\Tasks\Enums\TaskStatus;
 use App\Transcoding\Events\TranscodeCompleted;
 use App\Transcoding\HdrInspection;
 use App\Transcoding\OptimizationPolicy;
+use App\Transcoding\OutputContainer;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\StagingArea;
 use App\Transcoding\TranscodeInterrupted;
@@ -101,7 +102,7 @@ class RunTranscode
         if ($plan instanceof SkippedTranscode) {
             return $plan;
         }
-        $output = $this->staging->prepare($item->id, (string) $item->attempt_token);
+        $output = $this->staging->prepare($item->id, (string) $item->attempt_token, $plan->container);
         $quality = $this->qualityPolicy->forEncoding($item);
         $quality['decoding'] = $plan->decoding?->toArray() ?? ['backend' => null, 'device' => null];
         $policy = $this->optimizationPolicy->snapshot($plan->settings);
@@ -137,7 +138,7 @@ class RunTranscode
             throw new RuntimeException('FFmpeg exited with code '.$result->exitCode.'. '.$result->diagnosticTail);
         }
 
-        return $this->accept($item, $current);
+        return $this->accept($item, $current, $plan->container);
     }
 
     /** @param Closure(): Builder<MediaTranscode> $current */
@@ -274,9 +275,9 @@ class RunTranscode
     }
 
     /** @param Closure(): Builder<MediaTranscode> $current */
-    private function accept(MediaTranscode $item, Closure $current): ?SkippedTranscode
+    private function accept(MediaTranscode $item, Closure $current, OutputContainer $container): ?SkippedTranscode
     {
-        return DB::transaction(function () use ($item, $current): ?SkippedTranscode {
+        return DB::transaction(function () use ($item, $current, $container): ?SkippedTranscode {
             $run = TranscodeRun::query()->whereKey($item->transcode_run_id)->lockForUpdate()->firstOrFail();
             $file = MediaFile::query()->with(['libraryPath', 'probe'])->lockForUpdate()->find($item->media_file_id);
             $owned = $current()->lockForUpdate()->first();
@@ -289,7 +290,7 @@ class RunTranscode
             if ($owned->execution_deadline_at === null || $owned->execution_deadline_at->isPast()) {
                 throw new RuntimeException('The transcode execution deadline expired.');
             }
-            $output = $this->staging->accept($item->id, (string) $item->attempt_token);
+            $output = $this->staging->accept($item->id, (string) $item->attempt_token, $container);
             $owned->update(['status' => TaskStatus::COMPLETED, 'output_path' => $output,
                 'output_size_bytes' => $this->staging->disk()->size($output), 'progress_percent' => 100, 'finished_at' => now()]);
 

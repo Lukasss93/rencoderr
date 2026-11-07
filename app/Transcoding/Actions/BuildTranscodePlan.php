@@ -13,6 +13,8 @@ use App\Ffmpeg\HardwareDecoding;
 use App\Library\MediaFilePath;
 use App\Models\MediaFile;
 use App\Models\MediaStream;
+use App\Transcoding\ContainerStreams;
+use App\Transcoding\OutputContainer;
 use App\Transcoding\SkippedTranscode;
 use App\Transcoding\TranscodePlan;
 use App\Transcoding\VideoStreamOptions;
@@ -63,6 +65,7 @@ class BuildTranscodePlan
 
         $metadata = $probe->getAttribute('metadata');
         $metadata = is_array($metadata) ? $metadata : [];
+        $container = OutputContainer::forFile($file);
         $raw = $this->rawStream($metadata, $video->stream_index);
         $detection = $this->detector->current();
         $options = $this->videoOptions->handle($video, $raw, $settings);
@@ -86,6 +89,9 @@ class BuildTranscodePlan
         $sourceAudioCount = 0;
 
         foreach ($videos->concat($probe->streams->reject(fn (MediaStream $stream): bool => $stream->is($video))) as $stream) {
+            if ($stream->codec_type === null) {
+                return new SkippedTranscode('unsupported_stream', 'Stream '.$stream->stream_index.' has an unknown type.');
+            }
             $action = 'copy';
             $codec = 'copy';
             $extra = [];
@@ -117,11 +123,10 @@ class BuildTranscodePlan
                 $retain = $settings->retainSubtitles && ($this->languageMatches($stream->language, $settings->subtitleLanguages)
                     || ($settings->preserveForcedSubtitles && $stream->is_forced));
                 $action = $retain ? 'copy' : 'drop';
-                if ($retain && ! in_array($stream->codec_name, ['subrip', 'ass', 'ssa', 'webvtt', 'hdmv_pgs_subtitle', 'dvd_subtitle', 'dvb_subtitle'], true)) {
-                    return new SkippedTranscode('unsupported_subtitle', 'A retained subtitle codec cannot be copied to Matroska.');
-                }
+            } elseif (ContainerStreams::isChapterTrack($this->rawStream($metadata, $stream->stream_index), $metadata)) {
+                $action = 'drop';
             } elseif ($stream->codec_type !== 'attachment' && $stream->codec_type !== 'video') {
-                return new SkippedTranscode('unsupported_stream', 'The source contains a retained stream that cannot be copied safely.');
+                return new SkippedTranscode('unsupported_stream', 'Retained stream '.$stream->stream_index.' ('.($stream->codec_name ?? 'unknown codec').') cannot be copied to '.strtoupper($container->value).' safely.');
             }
 
             $decisions[] = ['index' => $stream->stream_index, 'type' => $stream->codec_type, 'action' => $action];
@@ -132,8 +137,15 @@ class BuildTranscodePlan
                 return new SkippedTranscode('unknown_codec', 'A retained stream has an unknown codec.');
             }
 
-            if ($stream->codec_type === 'audio' && $codec === 'copy' && ! $this->copyableAudio($stream)) {
-                return new SkippedTranscode('unsupported_audio_codec', 'A retained audio codec cannot be copied to Matroska safely.');
+            $targetCodec = $action === 'copy' ? $stream->codec_name
+                : ($stream->codec_type === 'video' ? $encoder->targetCodec()->value : $settings->audioCodec->value);
+            if (! $container->supports((string) $stream->codec_type, $targetCodec)) {
+                return new SkippedTranscode('unsupported_'.($stream->codec_type === 'subtitle' ? 'subtitle' : 'stream_codec'),
+                    'Retained stream '.$stream->stream_index.' ('.$targetCodec.') cannot be written to '.strtoupper($container->value).'.');
+            }
+
+            if ($container === OutputContainer::MKV && $stream->codec_type === 'audio' && $codec === 'copy' && ! $this->copyableAudio($stream)) {
+                return new SkippedTranscode('unsupported_audio_codec', 'Retained audio stream '.$stream->stream_index.' ('.$stream->codec_name.') cannot be copied to MKV safely.');
             }
 
             $arguments = [...$arguments, '-map', '0:'.$stream->stream_index, '-c:'.$output, $codec,
@@ -183,10 +195,10 @@ class BuildTranscodePlan
         if ($filter !== '') {
             $arguments = [...$arguments, '-filter:v:0', $filter];
         }
-        $arguments = [...$arguments, '-f', 'matroska'];
+        $arguments = [...$arguments, '-f', $container->muxer()];
 
         return new TranscodePlan($encoder, $settings, $path, $file->size_bytes, $file->filesystem_modified_at,
-            [...$prefix, ...$settings->videoQuality->arguments($encoder), ...$arguments], $decisions, $prefix, $inputArguments, $arguments, decoding: $decoding);
+            [...$prefix, ...$settings->videoQuality->arguments($encoder), ...$arguments], $decisions, $prefix, $inputArguments, $arguments, decoding: $decoding, container: $container);
     }
 
     private function encoder(Detection $detection, MediaSettings $settings, bool $softwareOnly): VideoEncoder

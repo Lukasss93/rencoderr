@@ -9,6 +9,7 @@ use App\Models\MediaTranscode;
 use App\Models\TranscodeRun;
 use App\QualityControl\Enums\QualityVerdict;
 use App\Tasks\Enums\TaskStatus;
+use App\Transcoding\OutputContainer;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -46,6 +47,7 @@ class QueueTranscodeFiles
             $source = rtrim($root->path, '/').'/'.$file->relative_path;
             $retained = $completed->get($file->id, collect())->contains(fn (MediaTranscode $item): bool => $item->source_path === $source
                 && $item->source_size_bytes === $file->size_bytes && $item->source_modified_at->equalTo($file->filesystem_modified_at)
+                && pathinfo((string) $item->output_path, PATHINFO_EXTENSION) === OutputContainer::forFile($file)->value
                 && $staging->exists((string) $item->output_path));
             if ($retained) {
                 $run->retained_output_count++;

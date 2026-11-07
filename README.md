@@ -88,6 +88,8 @@ VMAF measures perceptual video similarity. It helps screen results, but visual i
 
 ### Encoding and quality control
 
+MP4 sources keep MP4 output; all other sources produce Matroska (`.mkv`). MP4 selection requires a `.mp4` extension (case insensitive) and MP4-family inspection metadata. Each container preserves compatible retained streams, including `mov_text` subtitles in MP4. A retained stream that cannot fit the output container skips the file with a reason; codecs are never silently converted or tracks removed. Original source files remain untouched.
+
 With both savings and video-quality verification enabled, Rencoderr starts near the selected encoder’s normal quality range, measures representative samples, and adapts subsequent steps using measured VMAF and predicted size. It refines the quality/size boundaries and selects the smallest sampled candidate that meets both requirements before a full encode. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality instead.
 
 Preparation has limits on time, candidate count, and temporary storage. If it cannot find a suitable sampled candidate, the file is skipped with a reason and the closest measured result. Each request performs at most one full encode.

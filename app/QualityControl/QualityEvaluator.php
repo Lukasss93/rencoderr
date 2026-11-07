@@ -8,6 +8,7 @@ use App\Ffmpeg\MediaProcess;
 use App\Models\MediaQualityCheck;
 use App\QualityControl\Enums\QualityVerdict;
 use App\Transcoding\HdrInspection;
+use App\Transcoding\OutputContainer;
 use Closure;
 use FFMpeg\Driver\FFMpegDriver;
 use FFMpeg\Driver\FFProbeDriver;
@@ -62,6 +63,10 @@ class QualityEvaluator
         $progress(['binary_versions' => $versions, 'phase' => 'probing']);
         $source = $this->probe($files['source'], $check, $stop, $progress);
         $output = $this->probe($files['output'], $check, $stop, $progress);
+        $container = OutputContainer::from(pathinfo($check->output_path, PATHINFO_EXTENSION));
+        if (! $container->matchesFormat($output['format']['format_name'] ?? null)) {
+            throw new QualityRejected('output_container', 'The staged file does not use the accepted output container.');
+        }
         $transcode = $check->transcode()->firstOrFail();
         $decisions = $transcode->stream_decisions;
         $savedVersions = $transcode->optimization['binary_versions'] ?? null;

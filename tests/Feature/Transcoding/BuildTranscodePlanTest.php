@@ -49,16 +49,16 @@ function planEncoders(array $names = ['libx265', 'libsvtav1', 'aac', 'libopus'],
  * @param  array<string, mixed>  $video
  * @param  array<string, mixed>  $rawVideo
  */
-function planningFile(array $extraStreams = [], array $video = [], array $rawVideo = []): MediaFile
+function planningFile(array $extraStreams = [], array $video = [], array $rawVideo = [], string $filename = 'source.mkv', string $format = 'matroska,webm'): MediaFile
 {
-    $directory = mediaDirectory(['source.mkv' => 'source-data']);
+    $directory = mediaDirectory([$filename => 'source-data']);
     $path = LibraryPath::factory()->create(['path' => $directory]);
-    $file = MediaFile::factory()->for($path)->atPath('source.mkv')->create([
-        'size_bytes' => 11, 'filesystem_modified_at' => CarbonImmutable::createFromTimestamp((int) filemtime($directory.'/source.mkv')),
+    $file = MediaFile::factory()->for($path)->atPath($filename)->create([
+        'size_bytes' => 11, 'filesystem_modified_at' => CarbonImmutable::createFromTimestamp((int) filemtime($directory.'/'.$filename)),
     ]);
     $probe = MediaProbe::factory()->for($file)->create([
         'status' => TaskStatus::COMPLETED, 'source_size_bytes' => $file->size_bytes, 'source_modified_at' => $file->filesystem_modified_at,
-        'metadata' => ['streams' => [['index' => 0, 'field_order' => 'progressive', ...$rawVideo]]],
+        'format' => $format, 'metadata' => ['streams' => [['index' => 0, 'field_order' => 'progressive', ...$rawVideo]]],
     ]);
     MediaStream::factory()->for($probe, 'probe')->create([
         'stream_index' => 0, 'codec_type' => 'video', 'codec_name' => 'h264', 'pixel_format' => 'yuv420p',
@@ -98,6 +98,48 @@ it('plans exact source maps, timing and metadata without applying acceptance thr
     expect(implode(' ', $plan->arguments))->not->toContain('-ac:', '-s ', '-r ');
     expect(array_slice($plan->arguments, -2))->toBe(['-f', 'matroska']);
 });
+
+it('selects the output container from the source extension and confirmed probe format', function (string $filename, string $format, string $muxer): void {
+    planEncoders();
+    $plan = app(BuildTranscodePlan::class)->handle(planningFile(filename: $filename, format: $format), new MediaSettings);
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect(array_slice($plan->arguments, -2))->toBe(['-f', $muxer]);
+    $chosen = $plan->withQuality(new EncoderQuality($plan->encoder, 30));
+    expect(array_slice($chosen->sampleArguments('/reference.mkv'), -2))->toBe(['-f', $muxer]);
+})->with([
+    ['source.mp4', 'mov,mp4,m4a,3gp,3g2,mj2', 'mp4'],
+    ['source.MP4', 'mov,mp4,m4a,3gp,3g2,mj2', 'mp4'],
+    ['source.mov', 'mov,mp4,m4a,3gp,3g2,mj2', 'matroska'],
+    ['source.m4v', 'mov,mp4,m4a,3gp,3g2,mj2', 'matroska'],
+    ['source.mp4', 'matroska,webm', 'matroska'],
+    ['source.avi', 'avi', 'matroska'],
+]);
+
+it('copies MP4 subtitles without conversion and applies subtitle language filters', function (): void {
+    planEncoders();
+    $file = planningFile([
+        ['stream_index' => 1, 'codec_type' => 'subtitle', 'codec_name' => 'mov_text', 'language' => 'eng'],
+        ['stream_index' => 2, 'codec_type' => 'subtitle', 'codec_name' => 'mov_text', 'language' => 'ita', 'is_forced' => true],
+    ], filename: 'source.mp4', format: 'mov,mp4,m4a,3gp,3g2,mj2');
+    $plan = app(BuildTranscodePlan::class)->handle($file, new MediaSettings(subtitleLanguages: ['eng']));
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect(implode(' ', $plan->arguments))->toContain('-map 0:1 -c:1 copy', '-map 0:2 -c:2 copy', '-disposition:2 forced');
+});
+
+it('skips incompatible MP4 streams with the stream codec and container in the reason', function (string $type, string $codec): void {
+    planEncoders();
+    $file = planningFile([['stream_index' => 1, 'codec_type' => $type, 'codec_name' => $codec]], filename: 'source.mp4', format: 'mov,mp4,m4a,3gp,3g2,mj2');
+    $plan = app(BuildTranscodePlan::class)->handle($file, new MediaSettings);
+    expect($plan)->toBeInstanceOf(SkippedTranscode::class);
+    if (! $plan instanceof SkippedTranscode) {
+        throw new RuntimeException('Expected an incompatible stream.');
+    }
+    expect($plan->message)->toContain('1', $codec, 'MP4');
+})->with([['subtitle', 'ass'], ['audio', 'vorbis'], ['attachment', 'ttf'], ['data', 'bin_data']]);
 
 it('filters audio before lossless preservation and computes bitrate from output channels', function (AudioCodec $codec, AudioChannels $channels, string $bitrate, string $count): void {
     planEncoders();
@@ -436,3 +478,25 @@ it('keeps decoding on the saved hardware device through quality selection while 
     ['qsv', '/dev/dri/renderD129', 'qsv'],
     ['nvenc', '1', 'cuda'],
 ]);
+
+it('uses the requested audio codec for MP4 instead of copying incompatible source audio', function (AudioCodec $codec): void {
+    planEncoders();
+    $file = planningFile([['stream_index' => 1, 'codec_type' => 'audio', 'codec_name' => 'vorbis', 'channels' => 2]],
+        filename: 'source.mp4', format: 'mov,mp4,m4a,3gp,3g2,mj2');
+    $plan = app(BuildTranscodePlan::class)->handle($file, new MediaSettings(audioCodec: $codec));
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect(implode(' ', $plan->arguments))->toContain('-c:1 '.$codec->encoder(), '-f mp4');
+})->with([AudioCodec::AAC, AudioCodec::OPUS]);
+
+it('drops incompatible subtitles when retention is disabled for MP4', function (): void {
+    planEncoders();
+    $file = planningFile([['stream_index' => 1, 'codec_type' => 'subtitle', 'codec_name' => 'ass']],
+        filename: 'source.mp4', format: 'mov,mp4,m4a,3gp,3g2,mj2');
+    $plan = app(BuildTranscodePlan::class)->handle($file, new MediaSettings(retainSubtitles: false));
+    if (! $plan instanceof TranscodePlan) {
+        throw new RuntimeException($plan->message);
+    }
+    expect($plan->streamDecisions[1]['action'])->toBe('drop');
+});

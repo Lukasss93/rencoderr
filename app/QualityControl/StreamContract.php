@@ -5,6 +5,7 @@ namespace App\QualityControl;
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\Enums\AudioChannels;
 use App\Encoding\Enums\HdrMode;
+use App\Transcoding\ContainerStreams;
 use RuntimeException;
 
 class StreamContract
@@ -18,7 +19,8 @@ class StreamContract
     public function verify(array $source, array $output, array $decisions, MediaSettings $settings): array
     {
         $sources = $this->streams($source);
-        $outputs = array_values($this->streams($output));
+        $outputs = array_values(array_filter($this->streams($output),
+            fn (array $stream): bool => ! ContainerStreams::isChapterTrack($stream, $output)));
         if (count($decisions) !== count($sources) || count(array_unique(array_column($decisions, 'index'))) !== count($sources)) {
             throw new RuntimeException('The saved stream decisions do not describe every source stream.');
         }

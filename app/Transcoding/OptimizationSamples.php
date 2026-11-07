@@ -54,7 +54,7 @@ class OptimizationSamples
         $encodeSeconds = 0.0;
         foreach ($samples as $index => $sample) {
             $media->guard();
-            $output = $directory.'/candidate.mkv';
+            $output = $directory.'/candidate.'.$plan->container->value;
             $manifest = $output.'.frames';
             $log = 'candidate.xml';
             try {

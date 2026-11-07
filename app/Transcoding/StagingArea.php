@@ -29,7 +29,7 @@ class StagingArea
         return $id.'/'.$attempt;
     }
 
-    public function prepare(int $id, string $attempt): string
+    public function prepare(int $id, string $attempt, OutputContainer $container = OutputContainer::MKV): string
     {
         $disk = $this->disk();
         $disk->makeDirectory('');
@@ -50,21 +50,23 @@ class StagingArea
             throw new RuntimeException('The staging attempt directory contains a symbolic link.');
         }
 
-        return $disk->path($directory.'/output.partial.mkv');
+        return $disk->path($directory.'/'.$container->filename(partial: true));
     }
 
-    public function accept(int $id, string $attempt): string
+    public function accept(int $id, string $attempt, OutputContainer $container = OutputContainer::MKV): string
     {
         $directory = $this->directory($id, $attempt);
         $disk = $this->disk();
-        if (! $disk->exists($directory.'/output.partial.mkv') || $disk->size($directory.'/output.partial.mkv') < 1) {
+        $partial = $directory.'/'.$container->filename(partial: true);
+        $output = $directory.'/'.$container->filename();
+        if (! $disk->exists($partial) || $disk->size($partial) < 1) {
             throw new RuntimeException('FFmpeg did not produce a nonempty output.');
         }
-        if (! $disk->move($directory.'/output.partial.mkv', $directory.'/output.mkv')) {
+        if (! $disk->move($partial, $output)) {
             throw new RuntimeException('The completed output could not be staged.');
         }
 
-        return $directory.'/output.mkv';
+        return $output;
     }
 
     public function ensureSpace(string $directory, int $estimatedBytes): void

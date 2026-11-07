@@ -6,6 +6,7 @@ use App\Transcoding\Actions\OptimizeTranscode;
 use App\Transcoding\OptimizationMedia;
 use App\Transcoding\OptimizationPolicy;
 use App\Transcoding\OptimizationSamples;
+use App\Transcoding\OutputContainer;
 use App\Transcoding\TranscodePlan;
 use Carbon\CarbonImmutable;
 use Symfony\Component\Process\Process;
@@ -31,9 +32,10 @@ it('searches real container samples and selects a passing quality before a full 
     $settings = new MediaSettings(videoCodec: $encoder->targetCodec(), minimumVmaf: 70);
     $prefix = ['-nostdin', '-i', $source, '-map', '0:0', '-c:0', $encoder->value];
     $codecOptions = $scenario === 'av1' ? ['-preset', '8', '-svtav1-params', 'lp=1'] : ['-preset', 'ultrafast', '-x265-params', 'pools=1:frame-threads=1:log-level=error'];
-    $video = [...$codecOptions, '-pix_fmt:v:0', '+'.$pixel, '-fps_mode:v:0', 'passthrough', '-enc_time_base:v:0', 'demux', '-f', 'matroska'];
+    $container = $scenario === 'mp4' ? OutputContainer::MP4 : OutputContainer::MKV;
+    $video = [...$codecOptions, '-pix_fmt:v:0', '+'.$pixel, '-fps_mode:v:0', 'passthrough', '-enc_time_base:v:0', 'demux', '-f', $container->muxer()];
     $plan = new TranscodePlan($encoder, $settings, $source, $size, CarbonImmutable::createFromTimestamp($mtime),
-        [...$prefix, '-crf', '20', ...$video], [['index' => 0, 'type' => 'video', 'action' => 'encode']], $prefix, ['-nostdin'], $video);
+        [...$prefix, '-crf', '20', ...$video], [['index' => 0, 'type' => 'video', 'action' => 'encode']], $prefix, ['-nostdin'], $video, container: $container);
     $quality = ['mode' => 'sampled', 'positions' => [0.15, 0.5, 0.85], 'sample_seconds' => 30, 'model_path' => config('quality_control.model_path'),
         'width' => 320, 'height' => 180, 'duration_tolerance_seconds' => 0.5, 'media' => $settings->toArray(), 'threads' => 1];
     $audit = [];
@@ -50,7 +52,7 @@ it('searches real container samples and selects a passing quality before a full 
         ->and(count($audit['optimization']['candidates']))->toBeGreaterThanOrEqual(1)
         ->and($audit['optimization']['candidates'][0]['quality'])->toBe($audit['optimization']['policy']['starting_quality'][$encoder->value])
         ->and($audit['optimization']['policy']['strategy'])->toBe('adaptive_quality');
-})->with(['sdr', 'variable', 'offset', 'hdr', 'av1'])->skip(fn (): bool => getenv('QUALITY_CONTROL_NATIVE_TESTS') !== '1', 'Run inside the production image.');
+})->with(['sdr', 'variable', 'offset', 'hdr', 'av1', 'mp4'])->skip(fn (): bool => getenv('QUALITY_CONTROL_NATIVE_TESTS') !== '1', 'Run inside the production image.');
 
 it('converts downloaded GPU surface layouts into lossless planar references without changing pixels', function (string $surface, string $pixel): void {
     $directory = mediaDirectory([]);

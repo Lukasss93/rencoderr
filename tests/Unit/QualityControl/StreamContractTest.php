@@ -93,3 +93,17 @@ it('rejects changed, lost or invented stream languages', function (array $source
     'became unknown' => [['language' => 'eng'], ['language' => 'und']],
     'invented' => [[], ['language' => 'eng']],
 ]);
+
+it('recognizes only MP4 chapter data tracks when verifying output stream counts', function (string $handler, bool $valid): void {
+    $chapters = [['start_time' => '0', 'end_time' => '1', 'tags' => ['title' => 'Opening']]];
+    $chapter = ['index' => 1, 'codec_type' => 'data', 'codec_name' => 'bin_data', 'codec_tag_string' => 'text', 'tags' => ['handler_name' => $handler]];
+    $source = ['streams' => [qualityVideo()], 'chapters' => $chapters];
+    $output = ['format' => ['format_name' => 'mov,mp4,m4a,3gp,3g2,mj2'], 'streams' => [qualityVideo('hevc'), $chapter], 'chapters' => $chapters];
+    $verify = fn (): array => (new StreamContract)->verify($source, $output, [['index' => 0, 'type' => 'video', 'action' => 'encode']], new MediaSettings);
+
+    if ($valid) {
+        expect($verify()['expected'])->toHaveCount(1);
+    } else {
+        expect($verify)->toThrow(QualityRejected::class, 'unexpected streams');
+    }
+})->with([['SubtitleHandler', true], ['OtherData', false]]);

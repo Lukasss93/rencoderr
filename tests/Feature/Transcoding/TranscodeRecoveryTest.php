@@ -14,15 +14,15 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
-it('requeues interrupted files with new tokens at startup and removes only incomplete output', function (): void {
+it('requeues interrupted files with new tokens at startup and removes only incomplete output', function (string $extension): void {
     Queue::fake([TranscodeMediaFile::class]);
     Storage::fake('transcodes');
     $running = MediaTranscode::factory()->create(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid(), 'started_at' => now()]);
     $queued = MediaTranscode::factory()->create();
-    $completed = MediaTranscode::factory()->create(['status' => TaskStatus::COMPLETED, 'attempt_token' => (string) Str::uuid(), 'output_path' => 'retained/output.mkv']);
-    $partial = $running->id.'/'.$running->attempt_token.'/output.partial.mkv';
+    $completed = MediaTranscode::factory()->create(['status' => TaskStatus::COMPLETED, 'attempt_token' => (string) Str::uuid(), 'output_path' => 'retained/output.'.$extension]);
+    $partial = $running->id.'/'.$running->attempt_token.'/output.partial.'.$extension;
     Storage::disk('transcodes')->put($partial, 'partial');
-    Storage::disk('transcodes')->put('retained/output.mkv', 'keep');
+    Storage::disk('transcodes')->put('retained/output.'.$extension, 'keep');
     $tokens = [$running->id => $running->request_token, $queued->id => $queued->request_token];
 
     $recovered = app(RecoverTranscodes::class)->handle();
@@ -37,8 +37,8 @@ it('requeues interrupted files with new tokens at startup and removes only incom
     }
     expect($completed->refresh()->status)->toBe(TaskStatus::COMPLETED);
     Storage::disk('transcodes')->assertMissing($partial);
-    Storage::disk('transcodes')->assertExists('retained/output.mkv');
-});
+    Storage::disk('transcodes')->assertExists('retained/output.'.$extension);
+})->with(['mp4', 'mkv']);
 
 it('ignores jobs and failures from before the restart', function (): void {
     Queue::fake([TranscodeMediaFile::class]);

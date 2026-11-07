@@ -5,6 +5,7 @@ namespace App\QualityControl;
 use App\Library\MediaFilePath;
 use App\Models\MediaQualityCheck;
 use App\Tasks\Enums\TaskStatus;
+use App\Transcoding\OutputContainer;
 use App\Transcoding\StagingArea;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -25,7 +26,11 @@ class QualityWorkspace
             || $this->paths->resolve($file) !== $check->source_path) {
             throw new RuntimeException('The accepted encode or source binding changed.');
         }
-        $relative = $this->staging->directory($item->id, $check->transcode_attempt_token).'/output.mkv';
+        $container = OutputContainer::tryFrom(pathinfo($check->output_path, PATHINFO_EXTENSION));
+        if ($container === null) {
+            throw new RuntimeException('The staged output container is unsupported.');
+        }
+        $relative = $this->staging->directory($item->id, $check->transcode_attempt_token).'/'.$container->filename();
         $root = realpath($this->staging->disk()->path(''));
         if ($root === false || $check->output_path !== $relative) {
             throw new RuntimeException('The staged output path does not match the accepted attempt.');
