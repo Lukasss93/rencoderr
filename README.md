@@ -88,7 +88,7 @@ VMAF measures perceptual video similarity. It helps screen results, but visual i
 
 ### Encoding and quality control
 
-MP4 sources keep MP4 output; all other sources produce Matroska (`.mkv`). MP4 selection requires a `.mp4` extension (case insensitive) and MP4-family inspection metadata. Each container preserves compatible retained streams, including `mov_text` subtitles in MP4. A retained stream that cannot fit the output container skips the file with a reason; codecs are never silently converted or tracks removed. Original source files remain untouched.
+MP4 sources keep MP4 output; all other sources produce Matroska (`.mkv`). MP4 selection requires a `.mp4` extension (case insensitive) and MP4-family inspection metadata. Each container preserves compatible retained streams, including `mov_text` subtitles in MP4. A retained stream that cannot fit the output container skips the file with a reason; codecs are never silently converted or tracks removed. Source replacement follows the library write-back behavior described below.
 
 With both savings and video-quality verification enabled, Rencoderr starts near the selected encoder’s normal quality range, measures representative samples, and adapts subsequent steps using measured VMAF and predicted size. It refines the quality/size boundaries and selects the smallest sampled candidate that meets both requirements before a full encode. **5% is the minimum worthwhile saving, not the target.** Disabling either check uses the selected fixed quality instead.
 
@@ -99,6 +99,19 @@ Completed encodes receive a separate quality check covering retained streams, fr
 Outputs are staged under `/config/storage/app/private/transcodes` by default. Estimated savings and verified potential savings are shown separately. Reclaimed disk space stays at zero while originals and staged outputs are retained, so allow additional storage for encoding.
 
 An unchanged retained output prevents duplicate encoding unless quality control rejected it. After rejection, requesting the file again uses current settings. **Cancel run** stops waiting work and active encoding; **Retry failed** queues failed files in a new run. Container startup recovers interrupted work.
+
+### Writing verified output back to a library
+
+Choose a **Write-back behavior** when adding or editing each library:
+
+- **Copy alongside for approval** (default) copies a passing encode beside its source. Use **Review replacement** on the Dashboard, Queue or media detail page to compare sizes, containers, streams and the measured video quality. **Replace original** queues the replacement; the source stays unchanged until then.
+- **Replace automatically** installs the passing encode without waiting for review. Each transcode saves the library mode when it is queued; changing the mode does not approve older results.
+
+Only completed, passing quality checks can write back. Checks disabled in the media settings are shown as not measured in the review. Original sources are deleted after the new file has been copied, verified and installed. The replacement keeps the original filename stem and uses its selected MP4 or MKV extension. A conflicting destination is never overwritten.
+
+Pending copies are tracked and excluded from scans and transcode requests. Changed sources or encoded copies, unavailable folders and permission failures stop replacement and show an error. Fix the cause and use **Retry write-back** on the media detail page. Interrupted copies and replacements recover during startup; an installed file is not installed again. After installation the inventory is refreshed, a new media inspection is requested, and the staging output is removed. Reclaimed-space statistics appear only after replacement completes.
+
+The library filesystem must allow writes, hard links and directory synchronization. Write-back shares the encoding worker pool and has a configurable `WRITEBACK_TIMEOUT_SECONDS` limit (default: six hours). This workflow applies to new transcodes; existing completed results are not installed automatically.
 
 ### Workers
 

@@ -7,6 +7,7 @@ use App\Library\Events\LibraryPathScanned;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
 use App\Models\MediaProbe;
+use App\Models\MediaWriteback;
 use App\Tasks\Enums\TaskStatus;
 use Carbon\CarbonImmutable;
 use Generator;
@@ -48,7 +49,17 @@ class MediaScanner
         $rows = [];
         $prefixLength = strlen(rtrim($root->path, '/')) + 1;
 
+        $managed = MediaWriteback::query()->where('status', '!=', TaskStatus::COMPLETED)->whereHas('transcode.mediaFile', fn ($query) => $query->where('library_path_id', $pathId))
+            ->get(['candidate_path', 'backup_path'])->flatMap(fn (MediaWriteback $writeback): array => [
+                $writeback->candidate_path, $writeback->candidate_path.'.part', $writeback->backup_path,
+            ])->all();
+        $managed = array_fill_keys($managed, true);
         foreach ($this->files($root->path, $patterns) as $file) {
+            if (isset($managed[$file->getPathname()])
+                || (preg_match('/\.rencoderr-[0-9a-f-]{36}\.pending\.(?:mkv|mp4)$/D', $file->getPathname())
+                    && MediaWriteback::query()->where('candidate_path', $file->getPathname())->exists())) {
+                continue;
+            }
             $extension = strtolower($file->getExtension());
 
             if (! in_array($extension, $videoExtensions, true)) {

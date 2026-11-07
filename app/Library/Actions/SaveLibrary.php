@@ -5,6 +5,7 @@ namespace App\Library\Actions;
 use App\Library\LibraryPathResolver;
 use App\Models\Library;
 use App\Models\LibraryPath;
+use App\Writeback\Enums\WritebackMode;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -15,7 +16,7 @@ class SaveLibrary
     public function __construct(private LibraryPathResolver $paths, private RequestLibraryScan $requestScan) {}
 
     /**
-     * @param  array{name: string, automatic_scanning: bool, scan_interval_minutes: int, exclusion_patterns: list<string>}  $attributes
+     * @param  array{name: string, automatic_scanning: bool, scan_interval_minutes: int, exclusion_patterns: list<string>, writeback_mode?: WritebackMode}  $attributes
      * @param  list<string>  $paths
      */
     public function handle(?int $libraryId, array $attributes, array $paths): Library
@@ -50,7 +51,7 @@ class SaveLibrary
     }
 
     /**
-     * @param  array{name: string, automatic_scanning: bool, scan_interval_minutes: int, exclusion_patterns: list<string>}  $attributes
+     * @param  array{name: string, automatic_scanning: bool, scan_interval_minutes: int, exclusion_patterns: list<string>, writeback_mode?: WritebackMode}  $attributes
      * @param  list<string>  $canonical
      */
     private function persist(?int $libraryId, array $attributes, array $canonical): Library

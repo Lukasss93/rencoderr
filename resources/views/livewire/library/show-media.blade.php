@@ -14,6 +14,9 @@
     @error('transcode')
         <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
     @enderror
+    @error('writeback')
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
+    @enderror
     @if ($reason = $file->transcodeUnavailableReason())
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ $reason }}</p>
     @elseif ($activeRun)
@@ -108,11 +111,68 @@
         <h2 class="text-xl font-semibold">Transcode history</h2>
         @forelse ($transcodes as $transcode)
             <div wire:key="history-{{ $transcode->id }}">
-                <x-media.transcode :transcode="$transcode" />
+                <x-media.transcode :transcode="$transcode" review-actions />
             </div>
         @empty
             <p class="text-sm text-gray-500 dark:text-gray-400">No transcodes yet.</p>
         @endforelse
         {{ $transcodes->links() }}
     </section>
+
+    <x-modal wire="showReplacementReview" title="Replacement comparison" size="4xl" center scrollable>
+        @if ($reviewWriteback)
+            @php
+                $comparison = $reviewWriteback->comparison;
+                $beforeSize = $comparison['source']['size_bytes'] ?? $reviewWriteback->qualityCheck?->source_size_bytes;
+                $afterSize = $comparison['output']['size_bytes'] ?? $reviewWriteback->qualityCheck?->output_size_bytes;
+                $score = $comparison['vmaf_mean'] ?? $reviewWriteback->qualityCheck?->vmaf_mean;
+                $savingsPercent = $comparison['savings_percent'] ?? $reviewWriteback->qualityCheck?->savings_percent;
+                $scoringDisabled = ($reviewWriteback->qualityCheck?->results['video_quality'] ?? null) === 'disabled'
+                    || ! ($reviewWriteback->qualityCheck?->policy['media']['verify_video_quality'] ?? true);
+            @endphp
+            <div class="space-y-5">
+                <p class="text-sm">Compare the saved quality-control results before replacing this file. The original is removed only after the replacement is installed successfully.</p>
+                <div class="grid gap-5 sm:grid-cols-2">
+                    @foreach (['source' => 'Before: original', 'output' => 'After: replacement'] as $side => $label)
+                        @php($size = $side === 'source' ? $beforeSize : $afterSize)
+                        <section aria-label="{{ $label }}" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700" wire:key="review-{{ $reviewWriteback->id }}-{{ $side }}">
+                            <h3 class="font-semibold">{{ $label }}</h3>
+                            <dl class="space-y-2 text-sm">
+                                <div><dt class="text-gray-500 dark:text-gray-400">Size</dt><dd>{{ $size !== null ? \Illuminate\Support\Number::fileSize($size, maxPrecision: 2).' ('.number_format($size).' bytes)' : 'Not recorded' }}</dd></div>
+                                <div><dt class="text-gray-500 dark:text-gray-400">Container</dt><dd>{{ $comparison[$side]['container'] ?? 'Not recorded' }}</dd></div>
+                            </dl>
+                            <h4 class="text-sm font-medium">{{ $side === 'source' ? 'Source tracks' : 'Retained tracks' }}</h4>
+                            <ul class="space-y-1 text-sm">
+                                @forelse ($comparison[$side]['streams'] ?? [] as $index => $track)
+                                    <li wire:key="review-{{ $reviewWriteback->id }}-{{ $side }}-{{ $index }}">#{{ $track['index'] }} · {{ ucfirst($track['type']) }} · {{ $track['codec_name'] ?? 'Unknown codec' }}{{ isset($track['language']) ? ' · '.$track['language'] : '' }}</li>
+                                @empty
+                                    <li>Track metadata was not recorded.</li>
+                                @endforelse
+                            </ul>
+                        </section>
+                    @endforeach
+                </div>
+                <dl class="grid gap-4 text-sm sm:grid-cols-2">
+                    <div><dt class="text-gray-500 dark:text-gray-400">Potential savings</dt><dd>{{ $beforeSize !== null && $afterSize !== null ? number_format($beforeSize - $afterSize).' bytes' : 'Not recorded' }}{{ $savingsPercent !== null ? ' ('.number_format($savingsPercent, 1).'%)' : '' }}</dd></div>
+                    <div><dt class="text-gray-500 dark:text-gray-400">VMAF video quality score</dt><dd>{{ $scoringDisabled ? 'Disabled — not measured' : ($score !== null ? number_format($score, 2) : 'Not measured') }}</dd></div>
+                    <div><dt class="text-gray-500 dark:text-gray-400">Candidate file</dt><dd class="break-all font-mono">{{ $reviewWriteback->candidate_path }}</dd></div>
+                    <div><dt class="text-gray-500 dark:text-gray-400">Replacement destination</dt><dd class="break-all font-mono">{{ $reviewWriteback->destination_path }}</dd></div>
+                </dl>
+                @if ($reviewWriteback->qualityCheck)
+                    <x-media.quality-check :check="$reviewWriteback->qualityCheck" />
+                @endif
+                @error('writeback')
+                    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ $message }}</p>
+                @enderror
+                <div class="flex flex-wrap justify-end gap-3">
+                    <x-button text="Close" flat wire:click="$set('showReplacementReview', false)" />
+                    @if ($canApproveReview)
+                        <x-button text="Replace original" color="red" wire:click="replaceOriginal" loading="replaceOriginal" />
+                    @else
+                        <p class="text-sm text-gray-500 dark:text-gray-400">This result is no longer awaiting approval. Check its replacement status in the history.</p>
+                    @endif
+                </div>
+            </div>
+        @endif
+    </x-modal>
 </div>

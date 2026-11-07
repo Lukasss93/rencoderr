@@ -14,6 +14,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
+ * @property QualityVerdict|null $verdict
+ * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string}|null $source_fingerprint
+ * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string}|null $output_fingerprint
  * @property TaskStatus $status
  * @property array<string, mixed> $policy
  * @property array<string, mixed>|null $results
@@ -23,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $finished_at
  */
-#[Fillable(['media_transcode_id', 'status', 'verdict', 'phase', 'request_token', 'attempt_token', 'transcode_attempt_token', 'policy', 'execution_limit_seconds', 'threads', 'source_path', 'source_size_bytes', 'output_path', 'output_size_bytes', 'model_sha256', 'expected_contract', 'results', 'binary_versions', 'savings_percent', 'vmaf_mean', 'coverage_seconds', 'progress_percent', 'diagnostic_tail', 'error', 'reason', 'source_modified_at', 'cancel_requested_at', 'execution_deadline_at', 'started_at', 'finished_at'])]
+#[Fillable(['source_fingerprint', 'output_fingerprint', 'media_transcode_id', 'status', 'verdict', 'phase', 'request_token', 'attempt_token', 'transcode_attempt_token', 'policy', 'execution_limit_seconds', 'threads', 'source_path', 'source_size_bytes', 'output_path', 'output_size_bytes', 'model_sha256', 'expected_contract', 'results', 'binary_versions', 'savings_percent', 'vmaf_mean', 'coverage_seconds', 'progress_percent', 'diagnostic_tail', 'error', 'reason', 'source_modified_at', 'cancel_requested_at', 'execution_deadline_at', 'started_at', 'finished_at'])]
 class MediaQualityCheck extends Model
 {
     /** @use HasFactory<MediaQualityCheckFactory> */
@@ -51,7 +54,7 @@ class MediaQualityCheck extends Model
 
     protected function casts(): array
     {
-        return ['status' => TaskStatus::class, 'verdict' => QualityVerdict::class, 'policy' => 'array', 'expected_contract' => 'array',
+        return ['source_fingerprint' => 'array', 'output_fingerprint' => 'array', 'status' => TaskStatus::class, 'verdict' => QualityVerdict::class, 'policy' => 'array', 'expected_contract' => 'array',
             'results' => 'array', 'binary_versions' => 'array', 'execution_limit_seconds' => 'integer', 'threads' => 'integer',
             'source_size_bytes' => 'integer', 'output_size_bytes' => 'integer', 'source_modified_at' => 'immutable_datetime',
             'cancel_requested_at' => 'immutable_datetime', 'execution_deadline_at' => 'immutable_datetime',

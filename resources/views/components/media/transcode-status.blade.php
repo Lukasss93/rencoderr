@@ -13,6 +13,21 @@
     <x-badge :text="ucfirst(str_replace('_', ' ', $transcode->phase))" color="blue" />
 @endif
 
+@if ($transcode?->writeback)
+    <x-badge :text="$transcode->writeback->status === TaskStatus::FAILED ? 'Replacement failed' : match ($transcode->writeback->phase) {
+        'copying' => 'Copying replacement',
+        'awaiting_approval' => $transcode->writeback->approved_at === null ? 'Awaiting replacement approval' : 'Replacement queued',
+        'replacing' => 'Replacing original',
+        'installed' => 'Replacement installed',
+        default => ucfirst(str_replace('_', ' ', $transcode->writeback->phase)),
+    }" :color="match ($transcode->writeback->status) {
+        TaskStatus::FAILED => 'red',
+        TaskStatus::COMPLETED => 'green',
+        TaskStatus::PENDING => 'yellow',
+        default => 'blue',
+    }" />
+@endif
+
 @if ($transcode?->status === TaskStatus::COMPLETED)
     @if ($transcode->qualityCheck)
         <x-media.quality-status :check="$transcode->qualityCheck" />

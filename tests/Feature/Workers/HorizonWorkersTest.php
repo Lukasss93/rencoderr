@@ -263,7 +263,7 @@ it('provisions and refreshes each supervisor with its own limit', function (): v
     expect($master->supervisors->get(0)->options->maxProcesses)->toBe(4)
         ->and($master->supervisors->get(0)->options->queue)->toBe('scans,probes,default')
         ->and($master->supervisors->get(1)->options->maxProcesses)->toBe(2)
-        ->and($master->supervisors->get(1)->options->queue)->toBe('transcodes')
+        ->and($master->supervisors->get(1)->options->queue)->toBe('transcodes,writeback')
         ->and($master->supervisors->get(1)->options->connection)->toBe('redis-transcodes');
 
     $standard = new Supervisor($master->supervisors->get(0)->options);
@@ -295,7 +295,7 @@ it('keeps transcode reservations beyond supervisor timeout and standard queues i
 
     expect($standard->queue)->toBe('scans,probes,default')
         ->and($standard->timeout)->toBe(1830)
-        ->and($transcodes->queue)->toBe('transcodes')
+        ->and($transcodes->queue)->toBe('transcodes,writeback')
         ->and($transcodes->timeout)->toBe($timeout + 120)
         ->and(config('queue.connections.redis-transcodes.retry_after'))->toBe($timeout + 180)
         ->and(config('queue.connections.redis-transcodes.connection'))->toBe(config('queue.connections.redis.connection'));

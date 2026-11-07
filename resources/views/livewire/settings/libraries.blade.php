@@ -14,6 +14,7 @@
                         <p class="text-sm text-gray-500 dark:text-gray-400">
                             {{ $library->automatic_scanning ? 'Automatic scans every '.$library->scan_interval_minutes.' minutes' : 'Automatic scanning disabled' }}
                         </p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ $library->writeback_mode === \App\Writeback\Enums\WritebackMode::REPLACE ? 'Replace originals automatically after quality control' : 'Review replacements after quality control' }}</p>
                     </div>
                     <div class="flex flex-wrap gap-2">
                         <x-button text="Scan now" icon="arrow-path" sm wire:click="scan({{ $library->id }})" loading="scan" />
@@ -129,6 +130,10 @@
             @endif
 
             <x-checkbox label="Scan automatically" wire:model="form.automaticScanning" />
+            <x-select.native label="After quality control passes" wire:model="form.writebackMode" :options="[
+                ['label' => 'Ask for approval before replacing originals', 'value' => 'approval'],
+                ['label' => 'Replace originals automatically', 'value' => 'replace'],
+            ]" hint="Applies to newly requested transcodes. Existing results keep their saved replacement mode. Originals are removed only after a successful replacement." />
             <div class="grid gap-4 sm:grid-cols-2">
                 <x-input label="Scan interval" type="number" min="1" step="1" wire:model="form.interval" />
                 <x-select.native label="Interval unit" wire:model="form.intervalUnit" :options="[

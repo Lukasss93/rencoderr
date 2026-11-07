@@ -5,6 +5,7 @@ namespace App\QualityControl;
 use App\Encoding\Data\MediaSettings;
 use App\Encoding\Enums\HdrMode;
 use App\Ffmpeg\MediaProcess;
+use App\Library\FileFingerprint;
 use App\Models\MediaQualityCheck;
 use App\QualityControl\Enums\QualityVerdict;
 use App\Transcoding\HdrInspection;
@@ -37,7 +38,13 @@ class QualityEvaluator
     {
         $files = $this->workspace->open($check);
         try {
-            return $this->inspect($check, $files, $stop, $progress);
+            $result = $this->inspect($check, $files, $stop, $progress);
+            if ($check->transcode()->firstOrFail()->writeback_mode !== null) {
+                $result['source_fingerprint'] = FileFingerprint::capture($files['source']);
+                $result['output_fingerprint'] = FileFingerprint::capture($files['output']);
+            }
+
+            return $result;
         } finally {
             if ($this->workspace->identity($files['source']) !== $files['source_identity']
                 || $this->workspace->identity($files['output']) !== $files['output_identity']) {
@@ -79,6 +86,18 @@ class QualityEvaluator
         $contract = $this->contract->verify($source, $output, $decisions, $settings);
         $results = ['streams' => 'passed', 'video_quality' => $settings->verifyVideoQuality ? 'pending' : 'disabled',
             'comparison_view' => $contract['hdr_view'], 'segments' => []];
+        if ($transcode->writeback_mode !== null) {
+            $describe = static fn (array $probe): array => array_values(array_map(static fn (array $stream): array => [
+                'index' => $stream['index'], 'type' => $stream['codec_type'] ?? 'unknown',
+                'codec_name' => $stream['codec_name'] ?? null, 'language' => $stream['tags']['language'] ?? null,
+            ], $probe['streams'] ?? []));
+            $results['writeback_comparison'] = [
+                'source' => ['path' => $check->source_path, 'container' => $source['format']['format_name'] ?? 'unknown',
+                    'size_bytes' => $check->source_size_bytes, 'streams' => $describe($source)],
+                'output' => ['path' => $check->output_path, 'container' => $output['format']['format_name'] ?? 'unknown',
+                    'size_bytes' => $check->output_size_bytes, 'streams' => $describe($output)],
+            ];
+        }
         $estimated = $transcode->optimization['winner']['bytes'] ?? null;
         if (is_int($estimated) && $estimated > 0) {
             $results['estimated_output_bytes'] = $estimated;

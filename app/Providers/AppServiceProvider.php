@@ -5,12 +5,18 @@ namespace App\Providers;
 use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EnsureAuthenticationEnabled;
 use App\Library\Events\LibraryPathScanned;
+use App\Library\Events\MediaFileReplaced;
+use App\Library\Listeners\RefreshAfterWriteback;
 use App\Models\Library;
 use App\Models\MediaTranscode;
+use App\Probe\Listeners\QueueProbeAfterReplacement;
 use App\Probe\Listeners\QueueProbesAfterScan;
 use App\Probe\MediaProber;
+use App\QualityControl\Events\QualityCheckPassed;
 use App\QualityControl\Listeners\QueueQualityCheck;
 use App\Transcoding\Events\TranscodeCompleted;
+use App\Writeback\Events\WritebackInstalled;
+use App\Writeback\Listeners\QueueWriteback;
 use FFMpeg\Driver\FFMpegDriver;
 use FFMpeg\Driver\FFProbeDriver;
 use Illuminate\Auth\Middleware\RedirectIfAuthenticated;
@@ -38,6 +44,9 @@ class AppServiceProvider extends ServiceProvider
 
         Event::listen(LibraryPathScanned::class, QueueProbesAfterScan::class);
         Event::listen(TranscodeCompleted::class, QueueQualityCheck::class);
+        Event::listen(QualityCheckPassed::class, QueueWriteback::class);
+        Event::listen(WritebackInstalled::class, RefreshAfterWriteback::class);
+        Event::listen(MediaFileReplaced::class, QueueProbeAfterReplacement::class);
 
         Livewire::addPersistentMiddleware([
             Authenticate::class,

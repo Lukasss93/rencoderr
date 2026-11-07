@@ -31,7 +31,14 @@ class QueueTranscodeFiles
             ->whereDoesntHave('qualityCheck', fn ($query) => $query->where('status', TaskStatus::COMPLETED)->where('verdict', QualityVerdict::REJECTED))
             ->whereNotNull('output_path')->get()->groupBy('media_file_id');
         $staging = Storage::disk(config('transcoding.staging_disk'));
+        $writebackMode = $run->library?->writeback_mode;
+        $waiting = MediaTranscode::query()->whereIn('media_file_id', $files->modelKeys())
+            ->whereHas('writeback', fn ($query) => $query->unresolved())
+            ->pluck('media_file_id')->all();
         foreach ($files as $file) {
+            if (in_array($file->id, $waiting, true)) {
+                continue;
+            }
             if ($file->status !== MediaFileStatus::PRESENT) {
                 continue;
             }
@@ -55,6 +62,7 @@ class QueueTranscodeFiles
                 continue;
             }
             $item = $run->transcodes()->create([
+                'writeback_mode' => $writebackMode,
                 'media_file_id' => $file->id, 'request_token' => (string) Str::uuid(), 'status' => TaskStatus::QUEUED,
                 'source_path' => $source, 'source_size_bytes' => $file->size_bytes, 'source_modified_at' => $file->filesystem_modified_at,
             ]);

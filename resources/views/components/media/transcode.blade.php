@@ -1,4 +1,4 @@
-@props(['transcode', 'qualityActions' => false])
+@props(['transcode', 'qualityActions' => false, 'reviewActions' => false])
 @use('Illuminate\Support\Number')
 
 <x-card>
@@ -32,7 +32,25 @@
                 <pre class="mt-2 whitespace-pre-wrap break-all">{{ json_encode($transcode->optimization, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
             </details>
         @endif
-        <p class="text-sm">Reclaimed disk space: 0 bytes. Originals and staged outputs are retained.</p>
+        @if ($transcode->writeback?->status === \App\Tasks\Enums\TaskStatus::COMPLETED && $transcode->writeback->installed_at !== null && $transcode->writeback->staging_cleaned_at !== null)
+            <p class="text-sm">Reclaimed disk space: {{ number_format(max(0, (int) ($transcode->writeback->comparison['source']['size_bytes'] ?? 0) - (int) ($transcode->writeback->comparison['output']['size_bytes'] ?? 0))) }} bytes.</p>
+        @else
+            <p class="text-sm">Reclaimed disk space: 0 bytes. Replacement and cleanup have not completed.</p>
+        @endif
+        @if ($transcode->writeback?->awaitsApproval())
+            @if ($reviewActions)
+                <x-button text="Review replacement" wire:click="reviewReplacement({{ $transcode->id }})" loading="reviewReplacement" />
+            @elseif ($transcode->media_file_id)
+                <x-button text="Review replacement" :href="route('media.show', $transcode->media_file_id)" wire:navigate />
+            @endif
+        @endif
+        @if ($transcode->writeback?->error)
+            <p role="alert" class="break-all text-sm text-red-600 dark:text-red-400">Replacement failed: {{ $transcode->writeback->error }}</p>
+        @endif
+        @if ($reviewActions && $transcode->writeback?->status === \App\Tasks\Enums\TaskStatus::FAILED)
+            <p class="text-sm text-gray-500 dark:text-gray-400">Resolve the reported file or folder issue, then retry the write-back.</p>
+            <x-button text="Retry write-back" wire:click="retryWriteback({{ $transcode->writeback->id }})" loading="retryWriteback" />
+        @endif
         @if ($transcode->qualityCheck)
             <x-media.quality-check :check="$transcode->qualityCheck" :actions="$qualityActions" />
         @endif

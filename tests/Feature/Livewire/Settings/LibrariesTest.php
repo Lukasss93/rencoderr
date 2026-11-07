@@ -363,3 +363,29 @@ it('keeps transcode launch controls out of library settings', function (): void 
     Library::factory()->create();
     Livewire::test(Libraries::class)->assertDontSee('Transcode library');
 });
+
+it('defaults new libraries to approval and persists an explicit replacement mode', function (): void {
+    Queue::fake([ScanLibraryPath::class]);
+    $component = Livewire::test(Libraries::class)->call('create')
+        ->assertSet('form.writebackMode', 'approval')
+        ->set('form.name', 'Movies')->set('form.paths', [mediaDirectory()])
+        ->call('save')->assertHasNoErrors();
+
+    $library = Library::query()->sole();
+    expect($library->writeback_mode->value)->toBe('approval');
+
+    $component->call('edit', $library->id)->set('form.writebackMode', 'replace')
+        ->call('save')->assertHasNoErrors()
+        ->call('edit', $library->id)->assertSet('form.writebackMode', 'replace');
+
+    expect($library->refresh()->writeback_mode->value)->toBe('replace');
+});
+
+it('rejects an unknown replacement mode without saving the library', function (): void {
+    Queue::fake();
+    Livewire::test(Libraries::class)->set('form.name', 'Movies')->set('form.paths', [mediaDirectory()])
+        ->set('form.writebackMode', 'unsafe')->call('save')->assertHasErrors('form.writebackMode');
+
+    assertDatabaseCount('libraries', 0);
+    Queue::assertNothingPushed();
+});

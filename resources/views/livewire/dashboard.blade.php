@@ -96,6 +96,9 @@
         @interact('column_action', $file, $activeRuns)
             @php($reason = $file->transcodeUnavailableReason() ?? ($activeRuns->has($file->libraryPath->library_id) ? 'This library already has an active transcode run.' : null))
             <div class="max-w-xs space-y-2 whitespace-normal">
+                @if ($file->latestTranscode?->writeback?->awaitsApproval())
+                    <x-button text="Review replacement" sm :href="route('media.show', $file)" wire:navigate />
+                @endif
                 <x-button text="Transcode" icon="film" sm wire:click="transcodeFile({{ $file->id }})" loading="transcodeFile" :disabled="$reason !== null" />
                 @if ($reason)
                     <p class="text-xs">{{ $reason }}</p>

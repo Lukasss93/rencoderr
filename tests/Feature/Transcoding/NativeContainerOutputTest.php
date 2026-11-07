@@ -10,6 +10,7 @@ use App\Encoding\MediaPreferences;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
 use App\Models\MediaProbe;
+use App\Models\MediaWriteback;
 use App\Probe\ProbeResult;
 use App\QualityControl\Actions\RequestQualityCheck;
 use App\QualityControl\Actions\RunQualityCheck;
@@ -17,11 +18,14 @@ use App\QualityControl\Enums\QualityVerdict;
 use App\Tasks\Enums\TaskStatus;
 use App\Transcoding\Actions\RequestTranscodeRun;
 use App\Transcoding\Actions\RunTranscode;
+use App\Writeback\Actions\ApproveWriteback;
+use App\Writeback\Actions\RunWriteback;
+use App\Writeback\Enums\WritebackMode;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
 
-it('encodes and verifies real subtitles and chapters in the selected container', function (string $extension, bool $mislabeled): void {
+it('encodes and verifies real subtitles and chapters in the selected container', function (string $extension, bool $mislabeled, ?WritebackMode $delivery = null): void {
     Queue::fake();
     Storage::fake('transcodes');
     app(AccelerationPreference::class)->save('software');
@@ -51,6 +55,9 @@ it('encodes and verifies real subtitles and chapters in the selected container',
         'source_size_bytes' => $file->size_bytes, 'source_modified_at' => $file->filesystem_modified_at,
         'format' => $result->format, 'metadata' => $result->metadata, 'duration_seconds' => $result->duration]);
     $inspection->streams()->createMany($result->streams);
+    if ($delivery !== null) {
+        $root->library()->firstOrFail()->update(['writeback_mode' => $delivery]);
+    }
     $before = hash_file('sha256', $source);
 
     $run = app(RequestTranscodeRun::class)->forFile($file);
@@ -82,5 +89,25 @@ it('encodes and verifies real subtitles and chapters in the selected container',
         expect($check->error)->toBeNull()->and($check->verdict)->toBe(QualityVerdict::PASSED);
     }
     expect(hash_file('sha256', $source))->toBe($before);
-})->with([['mp4', false], ['mkv', false], ['mp4', true]])
+    if ($delivery !== null) {
+        $writeback = MediaWriteback::query()->where('media_transcode_id', $item->id)->sole();
+        app(RunWriteback::class)->handle($writeback->id, $writeback->request_token);
+        $writeback->refresh();
+        if ($delivery === WritebackMode::APPROVAL) {
+            expect($writeback->status)->toBe(TaskStatus::PENDING)->and(hash_file('sha256', $source))->toBe($before);
+            app(ApproveWriteback::class)->handle($writeback);
+            $writeback->refresh();
+            app(RunWriteback::class)->handle($writeback->id, $writeback->request_token);
+            $writeback->refresh();
+        }
+        expect($writeback->error)->toBeNull()->and($writeback->status)->toBe(TaskStatus::COMPLETED);
+        $fingerprint = $check->output_fingerprint;
+        if ($fingerprint === null) {
+            throw new RuntimeException('Passing write-back must save its output fingerprint.');
+        }
+        expect(hash_file('sha256', $source))->toBe($fingerprint['sha256']);
+        expect($writeback->inventory_refreshed_at)->not->toBeNull()->and($writeback->staging_cleaned_at)->not->toBeNull();
+        expect(is_file($writeback->staging_path))->toBeFalse();
+    }
+})->with([['mp4', false], ['mkv', false], ['mp4', true], ['mp4', false, WritebackMode::APPROVAL], ['mkv', false, WritebackMode::REPLACE]])
     ->skip(fn (): bool => getenv('QUALITY_CONTROL_NATIVE_TESTS') !== '1', 'Run with the native FFmpeg tests.');

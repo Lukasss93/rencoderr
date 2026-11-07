@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Writeback\Enums\WritebackMode;
 use Carbon\CarbonImmutable;
 use Database\Factories\LibraryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -12,10 +13,11 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
+ * @property WritebackMode $writeback_mode
  * @property list<string> $exclusion_patterns
  * @property CarbonImmutable|null $last_scan_requested_at
  */
-#[Fillable(['name', 'automatic_scanning', 'scan_interval_minutes', 'exclusion_patterns', 'last_scan_requested_at'])]
+#[Fillable(['writeback_mode', 'name', 'automatic_scanning', 'scan_interval_minutes', 'exclusion_patterns', 'last_scan_requested_at'])]
 class Library extends Model
 {
     /** @use HasFactory<LibraryFactory> */
@@ -49,6 +51,7 @@ class Library extends Model
     protected function casts(): array
     {
         return [
+            'writeback_mode' => WritebackMode::class,
             'automatic_scanning' => 'boolean',
             'scan_interval_minutes' => 'integer',
             'exclusion_patterns' => 'array',

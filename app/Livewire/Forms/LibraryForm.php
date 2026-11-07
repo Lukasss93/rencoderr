@@ -5,6 +5,7 @@ namespace App\Livewire\Forms;
 use App\Library\Actions\SaveLibrary;
 use App\Models\Library;
 use App\Models\LibraryPath;
+use App\Writeback\Enums\WritebackMode;
 use Closure;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,8 @@ class LibraryForm extends Form
     public string $name = '';
 
     public bool $automaticScanning = true;
+
+    public string $writebackMode = WritebackMode::APPROVAL->value;
 
     public string $interval = '15';
 
@@ -39,6 +42,7 @@ class LibraryForm extends Form
         $minutes = $library->scan_interval_minutes;
         $this->name = $library->name;
         $this->automaticScanning = $library->automatic_scanning;
+        $this->writebackMode = $library->writeback_mode->value;
         $this->intervalUnit = (string) collect(self::MINUTES_PER_UNIT)->search(fn (int $unitMinutes): bool => $minutes % $unitMinutes === 0);
         $this->interval = (string) intdiv($minutes, self::MINUTES_PER_UNIT[$this->intervalUnit]);
         $this->exclusions = implode("\n", $library->exclusion_patterns);
@@ -67,6 +71,7 @@ class LibraryForm extends Form
         $this->validate([
             'name' => ['required', 'string', 'max:255'],
             'automaticScanning' => ['boolean'],
+            'writebackMode' => ['required', Rule::enum(WritebackMode::class)],
             'interval' => ['required', 'integer', 'min:1', 'max:'.self::MAX_INTERVAL_MINUTES, function (string $attribute, mixed $value, Closure $fail): void {
                 if ($this->intervalMinutes() > self::MAX_INTERVAL_MINUTES) {
                     $fail('The scan interval is too large.');
@@ -82,6 +87,7 @@ class LibraryForm extends Form
             return $saveLibrary->handle($libraryId, [
                 'name' => $this->name,
                 'automatic_scanning' => $this->automaticScanning,
+                'writeback_mode' => WritebackMode::from($this->writebackMode),
                 'scan_interval_minutes' => $this->intervalMinutes(),
                 'exclusion_patterns' => $this->exclusionPatterns(),
             ], $this->paths);

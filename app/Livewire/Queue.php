@@ -56,7 +56,7 @@ class Queue extends Component
                 'transcodes as completed_count' => fn ($query) => $query->where('status', TaskStatus::COMPLETED),
                 'transcodes as failed_count' => fn ($query) => $query->where('status', TaskStatus::FAILED),
             ])->latest('id')->paginate(10, pageName: 'runsPage'),
-            'transcodes' => MediaTranscode::query()->with(['run', 'settings', 'qualityCheck'])->latest('id')->paginate(25, pageName: 'filesPage'),
+            'transcodes' => MediaTranscode::query()->with(['run', 'settings', 'qualityCheck', 'writeback.qualityCheck'])->latest('id')->paginate(25, pageName: 'filesPage'),
         ]);
     }
 }

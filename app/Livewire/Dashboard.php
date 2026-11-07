@@ -89,6 +89,7 @@ class Dashboard extends Component
                 'probe:id,media_file_id,status,source_size_bytes,source_modified_at',
                 'latestTranscode:id,media_file_id,status,progress_percent',
                 'latestTranscode.qualityCheck',
+                'latestTranscode.writeback.qualityCheck',
             ])->orderBy('relative_path')->orderBy('id')->paginate(25),
             'selectedLibrary' => ctype_digit($this->library) ? Library::query()->find((int) $this->library) : null,
             'activeRuns' => TranscodeRun::query()->active()->get(['id', 'library_id'])->keyBy('library_id'),

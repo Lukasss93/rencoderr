@@ -31,6 +31,9 @@ class RequestTranscodeRun
         $run = DB::transaction(function () use ($file): TranscodeRun {
             $library = Library::query()->lockForUpdate()->findOrFail($file->libraryPath()->firstOrFail()->library_id);
             $file = MediaFile::query()->with(['probe', 'libraryPath'])->findOrFail($file->id);
+            if ($file->transcodes()->whereHas('writeback', fn ($query) => $query->unresolved())->exists()) {
+                throw ValidationException::withMessages(['transcode' => 'This file has an unresolved write-back. Review it before requesting another transcode.']);
+            }
             $reason = $file->transcodeUnavailableReason();
             if ($reason !== null) {
                 throw ValidationException::withMessages(['transcode' => $reason]);

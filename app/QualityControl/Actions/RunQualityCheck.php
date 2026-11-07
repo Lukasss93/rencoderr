@@ -5,6 +5,7 @@ namespace App\QualityControl\Actions;
 use App\Ffmpeg\MediaProcessInterrupted;
 use App\Models\MediaQualityCheck;
 use App\QualityControl\Enums\QualityVerdict;
+use App\QualityControl\Events\QualityCheckPassed;
 use App\QualityControl\QualityEvaluator;
 use App\QualityControl\QualityRejected;
 use App\QualityControl\QualityWorkspace;
@@ -88,6 +89,9 @@ class RunQualityCheck
                 ->update(['status' => TaskStatus::CANCELLED, 'verdict' => null, 'reason' => 'cancelled', 'finished_at' => now()]);
         }
         if ($saved === 1) {
+            if (($result['verdict'] ?? null) === QualityVerdict::PASSED) {
+                rescue(fn () => event(new QualityCheckPassed($item->id)));
+            }
             Log::info('Quality control finished.', [...$context, 'status' => $result['status'], 'verdict' => $result['verdict'] ?? null, 'reason' => $result['reason'] ?? null]);
         }
     }
