@@ -119,6 +119,7 @@ class MediaSettingsForm extends Form
             'values.audio_bitrate_per_channel' => ['required', 'integer', 'between:32,256'],
             'values.minimum_savings_percent' => ['required', 'integer', 'between:0,99'],
             'values.minimum_vmaf' => ['required', 'numeric', 'between:0,100'],
+            'values.segment_tolerance' => ['required', 'numeric', 'between:0,100'],
             'values.audio_languages' => ['present', 'array', 'list', 'max:100'],
             'values.audio_languages.*' => ['required', 'string', 'regex:/\A[a-z]{3}\z/'],
             'values.subtitle_languages' => ['present', 'array', 'list', 'max:100'],

@@ -57,6 +57,7 @@ it('saves normalized media settings without running media processes', function (
         ->set('form.values.preserve_forced_subtitles', false)->set('form.values.skip_video_codecs', [])
         ->set('form.values.require_smaller_output', false)->set('form.values.minimum_savings_percent', '0')
         ->set('form.values.verify_video_quality', false)->set('form.values.minimum_vmaf', '96.5')
+        ->set('form.values.segment_tolerance', '0.5')
         ->call('save')->assertHasNoErrors()->assertDispatched('ts-ui:toast', title: 'Media settings saved.');
 
     expect(app(MediaPreferences::class)->globalSettings()->toArray())->toBe([
@@ -65,10 +66,11 @@ it('saves normalized media settings without running media processes', function (
         'audio_bitrate_per_channel' => 80, 'preserve_lossless_audio' => false, 'audio_languages' => ['eng', 'ita', 'und'],
         'retain_subtitles' => false, 'subtitle_languages' => ['ita'], 'preserve_forced_subtitles' => false,
         'skip_video_codecs' => [], 'require_smaller_output' => false, 'minimum_savings_percent' => 0,
-        'verify_video_quality' => false, 'minimum_vmaf' => 96.5,
+        'verify_video_quality' => false, 'minimum_vmaf' => 96.5, 'segment_tolerance' => 0.5,
     ]);
     Livewire::test(Media::class)->assertSet('form.values.audio_languages', ['eng', 'ita', 'und'])
-        ->assertSet('form.values.minimum_vmaf', 96.5);
+        ->assertSet('form.values.minimum_vmaf', 96.5)
+        ->assertSet('form.values.segment_tolerance', 0.5)->assertSee('Segment VMAF tolerance (points)');
     Queue::assertNothingPushed();
     Process::assertNothingRan();
 });
@@ -90,6 +92,8 @@ it('rejects invalid values without changing saved settings', function (string $f
     'fractional bitrate' => ['audio_bitrate_per_channel', 64.5], 'text bitrate' => ['audio_bitrate_per_channel', 'many'],
     'negative savings' => ['minimum_savings_percent', -1], 'excess savings' => ['minimum_savings_percent', 100],
     'low VMAF' => ['minimum_vmaf', -1], 'high VMAF' => ['minimum_vmaf', 101],
+    'negative tolerance' => ['segment_tolerance', -1], 'excess tolerance' => ['segment_tolerance', 100.1],
+    'text tolerance' => ['segment_tolerance', 'invalid'],
     'non-list languages' => ['audio_languages', ['first' => 'eng']],
     'invalid language' => ['audio_languages', ['en']], 'nested language' => ['audio_languages', [['eng']]],
     'too many languages' => ['subtitle_languages', array_fill(0, 101, 'eng')],

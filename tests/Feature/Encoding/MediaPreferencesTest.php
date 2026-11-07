@@ -15,7 +15,7 @@ it('provides preservation defaults without writing settings', function (): void 
         'audio_bitrate_per_channel' => 64, 'preserve_lossless_audio' => true, 'audio_languages' => [],
         'retain_subtitles' => true, 'subtitle_languages' => [], 'preserve_forced_subtitles' => true,
         'skip_video_codecs' => ['hevc', 'av1'], 'require_smaller_output' => true,
-        'minimum_savings_percent' => 5, 'verify_video_quality' => true, 'minimum_vmaf' => 95.0,
+        'minimum_savings_percent' => 5, 'verify_video_quality' => true, 'minimum_vmaf' => 95.0, 'segment_tolerance' => 1.0,
     ])->and(Setting::query()->count())->toBe(0);
 });
 
@@ -31,7 +31,7 @@ it('persists globals and supplies defaults for missing saved fields', function (
     expect(app(MediaPreferences::class)->globalSettings()->minimumVmaf)->toBe(96.5)
         ->and(Setting::valueOf('media.video_codec'))->toBe('hevc')
         ->and(Setting::valueOf('media.minimum_vmaf'))->toBe(96.5)
-        ->and(Setting::query()->where('key', 'like', 'media.%')->count())->toBe(17)
+        ->and(Setting::query()->where('key', 'like', 'media.%')->count())->toBe(18)
         ->and(Setting::query()->where('key', 'media_defaults')->exists())->toBeFalse()
         ->and($otherSetting->refresh()->value)->toBe('software');
 });

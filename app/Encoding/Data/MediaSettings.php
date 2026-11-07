@@ -10,7 +10,7 @@ use App\Encoding\Enums\TargetVideoCodec;
 use App\Encoding\Enums\VideoQuality;
 
 /**
- * @phpstan-type MediaSettingsData array{video_codec: string, video_quality: string, encoding_speed: string, hdr_mode: string, audio_codec: string, audio_channels: string, audio_bitrate_per_channel: int, preserve_lossless_audio: bool, audio_languages: list<string>, retain_subtitles: bool, subtitle_languages: list<string>, preserve_forced_subtitles: bool, skip_video_codecs: list<string>, require_smaller_output: bool, minimum_savings_percent: int, verify_video_quality: bool, minimum_vmaf: float}
+ * @phpstan-type MediaSettingsData array{video_codec: string, video_quality: string, encoding_speed: string, hdr_mode: string, audio_codec: string, audio_channels: string, audio_bitrate_per_channel: int, preserve_lossless_audio: bool, audio_languages: list<string>, retain_subtitles: bool, subtitle_languages: list<string>, preserve_forced_subtitles: bool, skip_video_codecs: list<string>, require_smaller_output: bool, minimum_savings_percent: int, verify_video_quality: bool, minimum_vmaf: float, segment_tolerance: float}
  */
 readonly class MediaSettings
 {
@@ -37,6 +37,7 @@ readonly class MediaSettings
         public int $minimumSavingsPercent = 5,
         public bool $verifyVideoQuality = true,
         public float $minimumVmaf = 95.0,
+        public float $segmentTolerance = 1.0,
     ) {}
 
     /** @return MediaSettingsData */
@@ -60,6 +61,7 @@ readonly class MediaSettings
             'minimum_savings_percent' => $this->minimumSavingsPercent,
             'verify_video_quality' => $this->verifyVideoQuality,
             'minimum_vmaf' => $this->minimumVmaf,
+            'segment_tolerance' => $this->segmentTolerance,
         ];
     }
 
@@ -73,7 +75,7 @@ readonly class MediaSettings
             $data['audio_bitrate_per_channel'], $data['preserve_lossless_audio'], $data['audio_languages'],
             $data['retain_subtitles'], $data['subtitle_languages'], $data['preserve_forced_subtitles'],
             $data['skip_video_codecs'], $data['require_smaller_output'], $data['minimum_savings_percent'],
-            $data['verify_video_quality'], $data['minimum_vmaf'],
+            $data['verify_video_quality'], $data['minimum_vmaf'], $data['segment_tolerance'],
         );
     }
 }

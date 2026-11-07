@@ -13,6 +13,9 @@ class QualityPolicy
     public function settings(array $policy): MediaSettings
     {
         $media = $policy['media'] ?? null;
+        if (is_array($media)) {
+            $media['segment_tolerance'] ??= $this->segmentTolerance($policy);
+        }
         if (! is_array($media) || array_diff_key((new MediaSettings)->toArray(), $media) !== []) {
             throw new RuntimeException('The transcode has no complete saved media policy.');
         }
@@ -25,6 +28,7 @@ class QualityPolicy
         if (! is_numeric($tolerance) || ! is_finite((float) $tolerance) || $tolerance <= 0) {
             throw new RuntimeException('The duration tolerance must be positive and finite.');
         }
+        $this->segmentTolerance($policy);
         /** @var MediaSettingsData $media */
         $settings = MediaSettings::fromArray($media);
         if (! is_finite($settings->minimumVmaf) || $settings->minimumVmaf < 0 || $settings->minimumVmaf > 100
@@ -40,7 +44,24 @@ class QualityPolicy
      */
     public function passes(array $policy, float $mean, array $segments, float $minimum): bool
     {
-        return $mean >= $minimum && (($policy['version'] ?? 1) < 2 || ($segments !== [] && min($segments) >= $minimum));
+        return $mean >= $minimum && (($policy['version'] ?? 1) < 2 || ($segments !== [] && min($segments) >= $this->segmentMinimum($policy, $minimum)));
+    }
+
+    /** @param array<string, mixed> $policy */
+    public function segmentTolerance(array $policy): float
+    {
+        $tolerance = $policy['segment_tolerance'] ?? 0.0;
+        if (! is_numeric($tolerance) || ! is_finite((float) $tolerance) || $tolerance < 0 || $tolerance > 100) {
+            throw new RuntimeException('The segment tolerance must be a finite number between zero and 100.');
+        }
+
+        return (float) $tolerance;
+    }
+
+    /** @param array<string, mixed> $policy */
+    public function segmentMinimum(array $policy, float $minimum): float
+    {
+        return max(0.0, $minimum - $this->segmentTolerance($policy));
     }
 
     /** @return array<string, mixed> */
@@ -54,7 +75,9 @@ class QualityPolicy
         }
         $settings = $transcode->settings()->get()->mapWithKeys(fn ($setting): array => [str($setting->key)->after('media.')->toString() => $setting->value])->all();
 
-        return ['version' => 2, 'threads' => (int) config('quality_control.threads'), 'execution_limit_seconds' => (int) config('quality_control.timeout_seconds'), 'mode' => config('quality_control.mode'), 'positions' => config('quality_control.sample_positions'),
+        $segmentTolerance = $this->segmentTolerance(['segment_tolerance' => $settings['segment_tolerance'] ?? 0.0]);
+
+        return ['version' => 2, 'segment_tolerance' => $segmentTolerance, 'threads' => (int) config('quality_control.threads'), 'execution_limit_seconds' => (int) config('quality_control.timeout_seconds'), 'mode' => config('quality_control.mode'), 'positions' => config('quality_control.sample_positions'),
             'sample_seconds' => config('quality_control.sample_seconds'), 'model_path' => config('quality_control.model_path'),
             'width' => config('quality_control.width'), 'height' => config('quality_control.height'),
             'duration_tolerance_seconds' => config('quality_control.duration_tolerance_seconds'), 'media' => $settings];

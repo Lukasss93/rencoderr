@@ -229,3 +229,17 @@ it('shows quality results separately from encoding and permits cancellation and 
     expect($check->refresh()->status)->toBe(TaskStatus::COMPLETED)
         ->and($check->transcode()->firstOrFail()->status)->toBe(TaskStatus::COMPLETED);
 });
+
+it('shows overall and segment requirements with the saved tolerance', function (): void {
+    JobQueue::fake();
+    $item = qualityTranscode();
+    $check = app(RequestQualityCheck::class)->handle($item);
+    $policy = $check->policy;
+    $policy['media']['minimum_vmaf'] = 92;
+    $policy['segment_tolerance'] = 1.0;
+    $check->update(['policy' => $policy, 'vmaf_mean' => 94.38,
+        'results' => ['segments' => [['mean' => 95.02], ['mean' => 91.24]]]]);
+
+    Livewire::test(Queue::class)->assertSee('Required overall score')->assertSee('Segment tolerance')
+        ->assertSee('Minimum segment score')->assertSee('Lowest measured segment')->assertSee('91.00')->assertSee('91.24');
+});

@@ -49,6 +49,24 @@ it('protects library settings and supports local access and missing libraries', 
     expect($library->settings()->pluck('value', 'key')->all())->toEqual(['media.video_codec' => 'av1']);
 });
 
+it('inherits the global segment tolerance and saves a library override including zero', function (): void {
+    Setting::factory()->create(['key' => 'media.segment_tolerance', 'value' => 1.5]);
+    $library = Library::factory()->create();
+    Livewire::test(LibraryMedia::class, ['library' => $library])
+        ->assertSet('form.values.segment_tolerance', 1.5)->assertSet('form.overridden.segment_tolerance', false)
+        ->assertSee('Segment VMAF tolerance (points)')
+        ->call('setOverride', 'segment_tolerance', true)->set('form.values.segment_tolerance', '0')
+        ->call('save')->assertHasNoErrors();
+
+    expect(app(MediaPreferences::class)->forLibrary($library->refresh())->segmentTolerance)->toBe(0.0)
+        ->and(app(MediaPreferences::class)->globalSettings()->segmentTolerance)->toBe(1.5);
+    Livewire::test(LibraryMedia::class, ['library' => $library])
+        ->assertSet('form.overridden.segment_tolerance', true)->assertSet('form.values.segment_tolerance', 0.0)
+        ->call('setOverride', 'segment_tolerance', false)->call('save')->assertHasNoErrors()
+        ->assertSet('form.values.segment_tolerance', 1.5);
+    expect($library->settings()->count())->toBe(0);
+});
+
 it('remounts language controls when inheritance changes to refresh their Alpine lock state', function (string $field): void {
     $library = Library::factory()->create();
     $component = Livewire::test(LibraryMedia::class, ['library' => $library]);

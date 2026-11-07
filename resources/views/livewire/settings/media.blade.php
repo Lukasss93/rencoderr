@@ -156,6 +156,11 @@
                     <x-input label="Minimum VMAF score" type="number" min="0" max="100" step="0.1"
                         wire:model="form.values.minimum_vmaf" :disabled="$form->isInherited('minimum_vmaf')" hint="Video Multi-Method Assessment Fusion (VMAF) measures perceptual similarity. It is not a lossless guarantee. Applies when quality verification is enabled." />
                 </x-media.setting>
+                <x-media.setting field="segment_tolerance" :library-mode="$library !== null"
+                    :inherited="$form->isInherited('segment_tolerance')" :global-value="$globalSettings?->segmentTolerance ?? ''">
+                    <x-input label="Segment VMAF tolerance (points)" type="number" min="0" max="100" step="0.1"
+                        wire:model="form.values.segment_tolerance" :disabled="$form->isInherited('segment_tolerance')" hint="Allows individual segments to fall this many points below the minimum VMAF score. The overall score must still meet the minimum. Default: 1 point. Set 0 for strict segment checks. Applies to new transcodes when quality verification is enabled." />
+                </x-media.setting>
                 </div>
             </x-accordion.items>
         </x-accordion>

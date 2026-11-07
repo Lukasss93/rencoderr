@@ -191,13 +191,21 @@ class QualityEvaluator
             $results['segments'][] = [...$range, ...$score];
             $progress(['results' => $results]);
         }
+        $segmentMeans = array_column($results['segments'], 'mean');
+        if ($completeFrames < 1) {
+            throw new RuntimeException('No video quality segments were measured.');
+        }
         $mean = $weightedScore / $completeFrames;
         $coverage = array_sum(array_map(fn (array $window): float => $window['end'] - $window['start'], $windows));
-        $passes = $this->policies->passes($policy, $mean, array_column($results['segments'], 'mean'), $settings->minimumVmaf);
+        $passes = $this->policies->passes($policy, $mean, $segmentMeans, $settings->minimumVmaf);
         $results['video_quality'] = $passes ? 'passed' : 'rejected';
         $progress(['results' => $results, 'vmaf_mean' => $mean, 'coverage_seconds' => $coverage]);
         if (! $passes) {
-            throw new QualityRejected('vmaf_below_threshold', 'The overall or a required segment VMAF score is below the saved minimum.');
+            throw new QualityRejected('vmaf_below_threshold', sprintf(
+                'Video quality rejected: overall %.2f (required %.2f); lowest segment %.2f (required %.2f with %.2f-point tolerance).',
+                $mean, $settings->minimumVmaf, min($segmentMeans),
+                $this->policies->segmentMinimum($policy, $settings->minimumVmaf), $this->policies->segmentTolerance($policy),
+            ));
         }
 
         return ['verdict' => QualityVerdict::PASSED, 'results' => $results, 'vmaf_mean' => $mean, 'coverage_seconds' => $coverage];

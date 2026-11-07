@@ -330,9 +330,14 @@ it('does not launch the full encode when preparation is cancelled or loses its r
 
 it('hands off the preparation policy despite settings changing during full encoding', function (): void {
     $item = executableTranscode();
+    app(MediaPreferences::class)->saveGlobal(new MediaSettings(segmentTolerance: 1.5));
+    app(MediaPreferences::class)->saveLibrary(
+        $item->run()->firstOrFail()->library()->firstOrFail(),
+        new MediaSettings(segmentTolerance: 0.5), ['segment_tolerance'],
+    );
     $runner = Mockery::mock(TranscodeProcess::class);
     $runner->shouldReceive('run')->once()->andReturnUsing(function (array $args, string $output): MediaProcessResult {
-        app(MediaPreferences::class)->saveGlobal(new MediaSettings(minimumVmaf: 50));
+        app(MediaPreferences::class)->saveGlobal(new MediaSettings(minimumVmaf: 50, segmentTolerance: 0));
         config(['quality_control.timeout_seconds' => 5, 'quality_control.model_path' => '/changed-model.json']);
         file_put_contents($output, 'output');
 
@@ -346,6 +351,8 @@ it('hands off the preparation policy despite settings changing during full encod
         throw new RuntimeException('Quality handoff was not created');
     }
     expect($check->policy['media']['minimum_vmaf'])->toEqual(95)
+        ->and($check->policy['segment_tolerance'])->toBe(0.5)
+        ->and($check->policy['media']['segment_tolerance'])->toBe(0.5)
         ->and($check->model_sha256)->toBe(hash('sha256', '{}'))
         ->and($check->execution_limit_seconds)->toBe(86400);
 });

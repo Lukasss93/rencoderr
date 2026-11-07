@@ -1,5 +1,13 @@
 @props(['check', 'actions' => false])
 @use('App\Tasks\Enums\TaskStatus')
+@use('App\QualityControl\QualityPolicy')
+@php
+    $qualityPolicy = app(QualityPolicy::class);
+    $requiredScore = $check->policy['media']['minimum_vmaf'] ?? null;
+    $segmentMinimum = $requiredScore === null ? null : $qualityPolicy->segmentMinimum($check->policy, (float) $requiredScore);
+    $segmentScores = array_column($check->results['segments'] ?? [], 'mean');
+    $segmentChecksEnabled = ($check->policy['version'] ?? 1) >= 2;
+@endphp
 
 <section aria-label="Quality control" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700">
     <h3 class="font-medium">Quality control</h3>
@@ -7,7 +15,10 @@
         <div><dt class="text-gray-500 dark:text-gray-400">Phase</dt><dd>{{ $check->phase ? ucfirst(str_replace('_', ' ', $check->phase)) : ucfirst($check->status->value) }}</dd></div>
         <div><dt class="text-gray-500 dark:text-gray-400">Check progress</dt><dd>{{ $check->progress_percent !== null ? number_format($check->progress_percent, 1).'%' : 'Not measured yet' }}</dd></div>
         <div><dt class="text-gray-500 dark:text-gray-400">VMAF (perceptual video quality)</dt><dd>{{ ! ($check->policy['media']['verify_video_quality'] ?? true) ? 'Disabled' : ($check->vmaf_mean !== null ? number_format($check->vmaf_mean, 2).' / 100' : 'Not measured yet') }}</dd></div>
-        <div><dt class="text-gray-500 dark:text-gray-400">Required score</dt><dd>{{ $check->policy['media']['minimum_vmaf'] ?? 'Unknown' }}</dd></div>
+        <div><dt class="text-gray-500 dark:text-gray-400">Required overall score</dt><dd>{{ $check->policy['media']['minimum_vmaf'] ?? 'Unknown' }}</dd></div>
+        <div><dt class="text-gray-500 dark:text-gray-400">Segment tolerance</dt><dd>{{ $segmentChecksEnabled ? number_format($qualityPolicy->segmentTolerance($check->policy), 2).' points' : 'Not enforced by this saved policy' }}</dd></div>
+        <div><dt class="text-gray-500 dark:text-gray-400">Minimum segment score</dt><dd>{{ $segmentChecksEnabled && $segmentMinimum !== null ? number_format($segmentMinimum, 2) : 'Not enforced by this saved policy' }}</dd></div>
+        <div><dt class="text-gray-500 dark:text-gray-400">Lowest measured segment</dt><dd>{{ $segmentScores !== [] ? number_format(min($segmentScores), 2).' / 100' : 'Not measured yet' }}</dd></div>
         <div><dt class="text-gray-500 dark:text-gray-400">Measured coverage</dt><dd>{{ $check->coverage_seconds !== null ? number_format($check->coverage_seconds, 1).' seconds' : 'Not measured yet' }} · {{ ucfirst($check->policy['mode'] ?? 'sampled') }}</dd></div>
         <div><dt class="text-gray-500 dark:text-gray-400">Savings check</dt><dd>{{ ! ($check->policy['media']['require_smaller_output'] ?? true) ? 'Disabled' : 'Minimum '.($check->policy['media']['minimum_savings_percent'] ?? 5).'%' }}</dd></div>
         <div><dt class="text-gray-500 dark:text-gray-400">Elapsed</dt><dd>{{ $check->started_at ? (int) $check->started_at->diffInSeconds($check->finished_at ?? now()).' seconds' : 'Not started' }}</dd></div>
