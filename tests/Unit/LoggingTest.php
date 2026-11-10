@@ -1,16 +1,22 @@
 <?php
 
-use Monolog\Handler\NullHandler;
+use Illuminate\Filesystem\Filesystem;
 use Monolog\Handler\StreamHandler;
 use Symfony\Component\Process\Process;
 
-it('handles deprecations in an Octane sandbox without an environment file', function (string|false $channel, string $handler): void {
-    $log = tempnam(sys_get_temp_dir(), 'rencoderr-deprecations-');
+it('writes deprecations to the dedicated file in an Octane sandbox regardless of the environment channel', function (string|false $channel): void {
+    $directory = dirname(__DIR__, 2).'/storage/framework/testing/logging-'.bin2hex(random_bytes(8));
+    $files = new Filesystem;
+    $files->ensureDirectoryExists($directory.'/logs');
+    $files->ensureDirectoryExists($directory.'/framework/views');
+    $log = $directory.'/logs/deprecations.log';
+    $stderr = $directory.'/stderr.log';
 
     try {
         $process = new Process([PHP_BINARY, '-r', <<<'PHP'
 require 'vendor/autoload.php';
 $app = require 'bootstrap/app.php';
+$app->useStoragePath(getenv('TEST_LOG_STORAGE'));
 $app->useEnvironmentPath(getenv('APP_CONFIG_CACHE').'-no-env');
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $app['config']->set('logging.channels.emergency.path', getenv('LOG_STDERR_STREAM'));
@@ -24,29 +30,26 @@ trigger_error('Deprecation regression probe', E_USER_DEPRECATED);
 echo get_class($sandbox->make('log')->channel('deprecations')->getLogger()->getHandlers()[0]);
 PHP], dirname(__DIR__, 2), [
             'APP_ENV' => 'production',
-            'APP_CONFIG_CACHE' => $log.'.config.php',
+            'APP_CONFIG_CACHE' => $directory.'/config.php',
+            'TEST_LOG_STORAGE' => $directory,
             'LOG_CHANNEL' => 'stderr',
             'LOG_LEVEL' => 'debug',
             'LOG_DEPRECATIONS_CHANNEL' => $channel,
             'LOG_DEPRECATIONS_TRACE' => 'false',
-            'LOG_STDERR_STREAM' => $log,
+            'LOG_STDERR_STREAM' => $stderr,
         ]);
         $process->mustRun();
 
-        expect($process->getOutput())->toBe($handler);
+        expect($process->getOutput())->toBe(StreamHandler::class);
         $contents = file_get_contents($log);
+        expect($contents)->toContain('Deprecation regression probe');
         expect($contents)->not->toContain('Unable to create configured logger');
-
-        if ($handler === StreamHandler::class) {
-            expect($contents)->toContain('Deprecation regression probe');
-        } else {
-            expect($contents)->toBe('');
-        }
+        expect(is_file($stderr) ? file_get_contents($stderr) : '')->toBe('');
     } finally {
-        unlink($log);
+        $files->deleteDirectory($directory);
     }
 })->with([
-    'unset' => [false, NullHandler::class],
-    'null' => ['null', NullHandler::class],
-    'stderr' => ['stderr', StreamHandler::class],
+    'unset' => [false],
+    'null' => ['null'],
+    'stderr' => ['stderr'],
 ]);

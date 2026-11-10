@@ -8,6 +8,8 @@ readonly class MediaProcessResult
 
     public function errorDiagnostics(): string
     {
-        return str_replace("amdgpu: os_same_file_description couldn't determine if two DRM fds reference the same file description.\nIf they do, bad things may happen!\n", '', $this->diagnosticTail);
+        $diagnostics = str_replace("amdgpu: os_same_file_description couldn't determine if two DRM fds reference the same file description.\nIf they do, bad things may happen!\n", '', $this->diagnosticTail);
+
+        return preg_replace('/^libva info: [^\r\n]*(?:\r?\n|$)/m', '', $diagnostics) ?? $diagnostics;
     }
 }

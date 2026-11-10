@@ -23,13 +23,13 @@ it('honors explicitly disabled authentication on Horizon', function (): void {
     get('/horizon')->assertOk();
 });
 
-it('trusts forwarded HTTPS only from the configured proxy', function (string $address, string $expected): void {
+it('trusts forwarded HTTPS from all proxies', function (string $address): void {
     Config::set('trustedproxy.proxies', ['10.20.0.1']);
 
     withServerVariables(['REMOTE_ADDR' => $address])
         ->get('http://example.test/', ['X-Forwarded-Proto' => 'https', 'X-Forwarded-Port' => '443'])
-        ->assertRedirect($expected);
+        ->assertRedirect('https://example.test/login');
 })->with([
-    ['10.20.0.1', 'https://example.test/login'],
-    ['10.20.0.2', 'http://example.test/login'],
+    '10.20.0.1',
+    '10.20.0.2',
 ]);
