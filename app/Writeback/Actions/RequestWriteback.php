@@ -46,7 +46,7 @@ class RequestWriteback
             $writeback = MediaWriteback::query()->create([
                 'media_transcode_id' => $item->id, 'media_quality_check_id' => $check->id,
                 'status' => TaskStatus::QUEUED, 'mode' => $item->writeback_mode, 'phase' => 'copying', 'request_token' => $token,
-                'source_path' => $source, 'staging_path' => $this->staging->disk()->path($expected),
+                'source_path' => $source, 'staging_path' => $this->staging->root().'/'.$expected,
                 'candidate_path' => $directory.'/'.$stem.'.rencoderr-'.$token.'.pending.'.$container->value,
                 'destination_path' => $directory.'/'.$stem.'.'.$container->value,
                 'backup_path' => $source.'.rencoderr-'.$token.'.backup',

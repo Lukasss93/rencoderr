@@ -127,8 +127,9 @@ class RunWriteback
         $container = OutputContainer::tryFrom(pathinfo($receipt->destination_path, PATHINFO_EXTENSION));
         $expected = $container === null ? null
             : $this->staging->directory($transcode->id, $check->transcode_attempt_token).'/'.$container->filename();
+        $staging = $expected === null ? null : $this->staging->root().'/'.$expected;
         $file = $transcode->mediaFile()->firstOrFail();
-        if ($expected === null || $receipt->staging_path !== $this->staging->disk()->path($expected)
+        if ($expected === null || ! in_array($receipt->staging_path, [$staging, $this->staging->disk()->path($expected)], true)
             || $check->output_path !== $expected || $transcode->output_path !== $expected
             || $receipt->source_path !== $check->source_path || $receipt->source_path !== $transcode->source_path
             || $source !== rtrim($root, '/').'/'.$file->relative_path
@@ -142,6 +143,9 @@ class RunWriteback
             || preg_match('/^'.preg_quote($stem, '/').'\.rencoderr-[0-9a-f-]{36}\.pending\.'.preg_quote($extension, '/').'$/D', basename($receipt->candidate_path)) !== 1
             || preg_match('/^'.preg_quote($source, '/').'\.rencoderr-[0-9a-f-]{36}\.backup$/D', $receipt->backup_path) !== 1) {
             throw new RuntimeException('Writeback artifact paths do not match the source and selected container.');
+        }
+        if ($receipt->staging_path !== $staging) {
+            $this->save($receipt, ['staging_path' => $staging]);
         }
     }
 
@@ -302,8 +306,8 @@ class RunWriteback
 
     private function requireMatch(string $path, string $fingerprint): void
     {
-        if (! FileFingerprint::matches($path, $fingerprint)) {
-            throw new RuntimeException('A writeback file changed or is unavailable: '.$path);
+        if (FileFingerprint::capture($path) !== $fingerprint) {
+            throw new RuntimeException('A writeback file checksum does not match: '.$path);
         }
     }
 

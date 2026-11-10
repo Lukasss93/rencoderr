@@ -32,8 +32,8 @@ class QualityWorkspace
             throw new RuntimeException('The staged output container is unsupported.');
         }
         $relative = $this->staging->directory($item->id, $check->transcode_attempt_token).'/'.$container->filename();
-        $root = realpath($this->staging->disk()->path(''));
-        if ($root === false || $check->output_path !== $relative) {
+        $root = $this->staging->root();
+        if ($check->output_path !== $relative) {
             throw new RuntimeException('The staged output path does not match the accepted attempt.');
         }
         $output = $root.'/'.$relative;
@@ -79,10 +79,7 @@ class QualityWorkspace
         if ($check->attempt_token === null || ! Str::isUuid($check->attempt_token)) {
             throw new RuntimeException('The quality-control attempt identity is invalid.');
         }
-        $root = realpath($this->staging->disk()->path(''));
-        if ($root === false) {
-            throw new RuntimeException('The staging disk is unavailable.');
-        }
+        $root = $this->staging->root();
 
         return $root.'/'.$this->staging->directory($check->media_transcode_id, $check->transcode_attempt_token).'/quality-control/'.$check->attempt_token;
     }

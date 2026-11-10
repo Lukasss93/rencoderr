@@ -29,14 +29,21 @@ class StagingArea
         return $id.'/'.$attempt;
     }
 
+    public function root(): string
+    {
+        $root = realpath($this->disk()->path(''));
+        if ($root === false) {
+            throw new RuntimeException('The transcode staging directory is unavailable.');
+        }
+
+        return $root;
+    }
+
     public function prepare(int $id, string $attempt, OutputContainer $container = OutputContainer::MKV): string
     {
         $disk = $this->disk();
         $disk->makeDirectory('');
-        $root = realpath($disk->path(''));
-        if ($root === false) {
-            throw new RuntimeException('The transcode staging directory is unavailable.');
-        }
+        $root = $this->root();
         foreach (LibraryPath::query()->pluck('path') as $libraryPath) {
             $libraryPath = rtrim(realpath($libraryPath) ?: $libraryPath, '/');
             if ($root === $libraryPath || str_starts_with($root.'/', $libraryPath.'/')) {

@@ -75,6 +75,7 @@ it('refuses changed source or staged output', function (string $field): void {
     app(RunWriteback::class)->handle($receipt->id, $receipt->request_token);
 
     expect($receipt->refresh()->status)->toBe(TaskStatus::FAILED);
+    expect($receipt->error)->toBe('A writeback file checksum does not match: '.$receipt->{$field});
     expect(file_get_contents($receipt->source_path))->toBe($field === 'source_path' ? 'tampered media' : 'original media');
     expect(file_exists($receipt->destination_path))->toBeFalse();
 })->with(['source_path', 'staging_path']);

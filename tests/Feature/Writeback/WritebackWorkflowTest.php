@@ -14,6 +14,7 @@ use App\Transcoding\Actions\RequestTranscodeRun;
 use App\Writeback\Actions\ApproveWriteback;
 use App\Writeback\Actions\RecoverWritebacks;
 use App\Writeback\Actions\RequestWriteback;
+use App\Writeback\Actions\RetryWriteback;
 use App\Writeback\Actions\RunWriteback;
 use App\Writeback\Enums\WritebackMode;
 use App\Writeback\Events\WritebackInstalled;
@@ -86,6 +87,38 @@ it('queues one writeback for a newly passed encode and keeps the source unchange
     expect(MediaWriteback::query()->count())->toBe(1);
     expect(file_get_contents($check->source_path))->toBe('video');
     Queue::assertPushed(WriteMediaFile::class, 1);
+});
+
+it('installs and cleans staged output through the Docker storage symlink', function (): void {
+    Queue::fake();
+    $check = passingWritebackCheck(WritebackMode::REPLACE);
+    $root = Storage::disk('transcodes')->path('');
+    $directory = mediaDirectory();
+    symlink($root, $directory.'/storage');
+    config(['filesystems.disks.transcodes.root' => $directory.'/storage']);
+    Storage::forgetDisk('transcodes');
+    $alias = Storage::disk('transcodes')->path($check->output_path);
+    expect(is_readable($alias))->toBeTrue();
+    $canonical = realpath($alias);
+    $writeback = app(RequestWriteback::class)->handle($check);
+    if ($writeback === null) {
+        throw new RuntimeException('Missing writeback.');
+    }
+    $queuedPath = $writeback->staging_path;
+    $writeback->update(['status' => TaskStatus::FAILED, 'staging_path' => $alias]);
+    app(RetryWriteback::class)->handle($writeback);
+    $writeback->refresh();
+
+    app(RunWriteback::class)->handle($writeback->id, $writeback->request_token);
+
+    expect($writeback->refresh()->error)->toBeNull();
+    expect($writeback->status)->toBe(TaskStatus::COMPLETED);
+    expect($queuedPath)->toBe($canonical);
+    expect($writeback->staging_path)->toBe($canonical);
+    expect($writeback->staging_cleaned_at)->not->toBeNull();
+    expect(file_get_contents($writeback->destination_path))->toBe('new');
+    expect(file_exists($alias))->toBeFalse();
+    Queue::assertPushed(WriteMediaFile::class, 2);
 });
 
 it('does not deliver rejected, unfinished, or legacy quality checks', function (string $condition): void {

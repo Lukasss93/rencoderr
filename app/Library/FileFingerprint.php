@@ -11,11 +11,11 @@ class FileFingerprint
         self::assertCanonical($path);
         $named = @lstat($path);
         if ($named === false || ($named['mode'] & 0170000) !== 0100000 || ! is_readable($path)) {
-            throw new RuntimeException('Writeback requires a readable regular file.');
+            throw new RuntimeException('Writeback requires a readable regular file: '.$path);
         }
         $hash = @hash_file('sha256', $path);
         if ($hash === false) {
-            throw new RuntimeException('The media file could not be hashed.');
+            throw new RuntimeException('The media file could not be hashed: '.$path);
         }
 
         return $hash;
@@ -37,7 +37,7 @@ class FileFingerprint
             || realpath(dirname($path)) !== dirname($path)
             || in_array(basename($path), ['.', '..', ''], true)
             || is_link($path) || ($mustExist && realpath($path) !== $path)) {
-            throw new RuntimeException('Writeback refuses symbolic links and noncanonical paths.');
+            throw new RuntimeException('Writeback refuses symbolic links and noncanonical paths: '.$path);
         }
     }
 }
