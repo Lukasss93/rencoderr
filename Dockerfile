@@ -126,7 +126,7 @@ RUN set -eux; \
 ENV APP_NAME=Rencoderr APP_ENV=production APP_DEBUG=false APP_URL=http://localhost:8000 \
     XDG_CACHE_HOME=/config/storage/cache \
     LOG_CHANNEL=stderr LOG_LEVEL=info LOG_STDERR_STREAM=/run/rencoderr/application.log \
-    DB_CONNECTION=sqlite DB_DATABASE=/config/database/database.sqlite DB_JOURNAL_MODE=WAL DB_BUSY_TIMEOUT=5000 \
+    DB_CONNECTION=sqlite DB_DATABASE=/config/database/database.sqlite DB_JOURNAL_MODE=WAL \
     QUEUE_CONNECTION=redis REDIS_QUEUE_RETRY_AFTER=1860 REDIS_HOST=127.0.0.1 REDIS_CLIENT=phpredis \
     CACHE_STORE=redis SESSION_DRIVER=database \
     OCTANE_SERVER=swoole OCTANE_STATE_FILE=/run/rencoderr/octane.json OCTANE_WORKERS=2 HORIZON_WORKERS=1 \
