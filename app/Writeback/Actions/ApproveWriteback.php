@@ -26,7 +26,7 @@ class ApproveWriteback
                 throw ValidationException::withMessages(['writeback' => 'Only a verified copy awaiting approval can replace its source.']);
             }
             if (! FileFingerprint::matches($item->source_path, $item->source_fingerprint)
-                || ! FileFingerprint::matches($item->candidate_path, $item->output_fingerprint, false)) {
+                || ! FileFingerprint::matches($item->candidate_path, $item->output_fingerprint)) {
                 throw ValidationException::withMessages(['writeback' => 'The source or verified copy changed. Replacement was refused.']);
             }
             $token = (string) Str::uuid();

@@ -18,6 +18,7 @@ use App\Writeback\Actions\RunWriteback;
 use App\Writeback\Enums\WritebackMode;
 use App\Writeback\Events\WritebackInstalled;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -50,6 +51,29 @@ function passingWritebackCheck(?WritebackMode $mode = WritebackMode::APPROVAL, s
         'output_path' => $output, 'output_size_bytes' => 3, 'source_fingerprint' => FileFingerprint::capture($source),
         'output_fingerprint' => FileFingerprint::capture(Storage::disk('transcodes')->path($output))]);
 }
+
+it('converts existing fingerprint objects to checksum strings', function (): void {
+    $writeback = MediaWriteback::factory()->create();
+    $check = $writeback->qualityCheck()->firstOrFail();
+    $source = hash('sha256', 'video');
+    $output = hash('sha256', 'new');
+    $migration = require database_path('migrations/2026_11_10_205037_simplify_media_fingerprints.php');
+    $migration->down();
+    DB::table('media_writebacks')->where('id', $writeback->id)->update([
+        'source_fingerprint' => json_encode(['sha256' => $source, 'ino' => 123], JSON_THROW_ON_ERROR),
+        'output_fingerprint' => json_encode(['sha256' => $output], JSON_THROW_ON_ERROR),
+    ]);
+    DB::table('media_quality_checks')->where('id', $check->id)->update([
+        'source_fingerprint' => json_encode(['sha256' => $source], JSON_THROW_ON_ERROR),
+    ]);
+
+    $migration->up();
+
+    expect($writeback->refresh()->source_fingerprint)->toBe($source);
+    expect($writeback->output_fingerprint)->toBe($output);
+    expect($check->refresh()->source_fingerprint)->toBe($source);
+    expect($check->output_fingerprint)->toBeNull();
+});
 
 it('queues one writeback for a newly passed encode and keeps the source unchanged', function (): void {
     Queue::fake();
@@ -105,6 +129,10 @@ it('copies beside the source, excludes the pending file from scans, and replaces
     $root = $check->transcode()->firstOrFail()->mediaFile()->firstOrFail()->libraryPath()->firstOrFail();
     scanMediaPath($root);
     expect($root->mediaFiles()->count())->toBe(1);
+    touch($writeback->source_path, 1000000000);
+    touch($writeback->staging_path, 1000000000);
+    copy($writeback->candidate_path, $writeback->candidate_path.'.replacement');
+    rename($writeback->candidate_path.'.replacement', $writeback->candidate_path);
 
     app(ApproveWriteback::class)->handle($writeback);
     $writeback->refresh();

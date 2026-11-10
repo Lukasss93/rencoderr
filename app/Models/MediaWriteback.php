@@ -17,9 +17,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * @property TaskStatus $status
  * @property WritebackMode $mode
- * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string} $source_fingerprint
- * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string} $output_fingerprint
- * @property array<string, int|string>|null $candidate_identity
+ * @property string $source_fingerprint
+ * @property string $output_fingerprint
  * @property array<string, mixed> $comparison
  * @property CarbonImmutable|null $approved_at
  * @property CarbonImmutable|null $installed_at
@@ -27,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable(['media_transcode_id', 'media_quality_check_id', 'approved_by', 'status', 'mode', 'phase', 'request_token', 'attempt_token',
     'source_path', 'staging_path', 'candidate_path', 'copy_path', 'destination_path', 'backup_path', 'source_fingerprint', 'output_fingerprint',
-    'candidate_identity', 'comparison', 'error', 'approved_at', 'installed_at', 'inventory_refreshed_at', 'staging_cleaned_at', 'started_at', 'finished_at'])]
+    'comparison', 'error', 'approved_at', 'installed_at', 'inventory_refreshed_at', 'staging_cleaned_at', 'started_at', 'finished_at'])]
 class MediaWriteback extends Model
 {
     /** @use HasFactory<MediaWritebackFactory> */
@@ -61,7 +60,7 @@ class MediaWriteback extends Model
     protected function casts(): array
     {
         return ['status' => TaskStatus::class, 'mode' => WritebackMode::class,
-            'source_fingerprint' => 'array', 'output_fingerprint' => 'array', 'candidate_identity' => 'array', 'comparison' => 'array',
+            'source_fingerprint' => 'json', 'output_fingerprint' => 'json', 'comparison' => 'array',
             'approved_at' => 'immutable_datetime', 'installed_at' => 'immutable_datetime', 'staging_cleaned_at' => 'immutable_datetime', 'inventory_refreshed_at' => 'immutable_datetime',
             'started_at' => 'immutable_datetime', 'finished_at' => 'immutable_datetime'];
     }

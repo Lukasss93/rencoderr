@@ -31,7 +31,7 @@ class RefreshAfterWriteback
             }
             $prefix = rtrim($root->path, '/').'/';
             if (! str_starts_with($writeback->destination_path, $prefix)
-                || ! FileFingerprint::matches($writeback->destination_path, $writeback->output_fingerprint, false)) {
+                || ! FileFingerprint::matches($writeback->destination_path, $writeback->output_fingerprint)) {
                 throw new RuntimeException('The installed file changed before inventory could be refreshed.');
             }
             $relative = substr($writeback->destination_path, strlen($prefix));
@@ -43,10 +43,13 @@ class RefreshAfterWriteback
                 $duplicate->transcodes()->update(['media_file_id' => $file->id]);
                 $duplicate->delete();
             }
-            $fingerprint = FileFingerprint::capture($writeback->destination_path);
+            $metadata = @stat($writeback->destination_path);
+            if ($metadata === false) {
+                throw new RuntimeException('The installed file metadata could not be read.');
+            }
             $file->update(['relative_path' => $relative, 'path_hash' => hash('sha256', $relative),
-                'extension' => strtolower(pathinfo($relative, PATHINFO_EXTENSION)), 'size_bytes' => $fingerprint['size'],
-                'filesystem_modified_at' => date('Y-m-d H:i:s', $fingerprint['mtime']), 'last_seen_at' => now()]);
+                'extension' => strtolower(pathinfo($relative, PATHINFO_EXTENSION)), 'size_bytes' => $metadata['size'],
+                'filesystem_modified_at' => date('Y-m-d H:i:s', $metadata['mtime']), 'last_seen_at' => now()]);
             $file->probe()->update(MediaProbe::pendingAttributes());
             $writeback->update(['inventory_refreshed_at' => now()]);
             event(new MediaFileReplaced($file->id));

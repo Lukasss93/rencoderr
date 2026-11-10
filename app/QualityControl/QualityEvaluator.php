@@ -40,21 +40,21 @@ class QualityEvaluator
         try {
             $result = $this->inspect($check, $files, $stop, $progress);
             if ($check->transcode()->firstOrFail()->writeback_mode !== null) {
-                $result['source_fingerprint'] = FileFingerprint::capture($files['source']);
-                $result['output_fingerprint'] = FileFingerprint::capture($files['output']);
+                $result['source_fingerprint'] = $files['source_fingerprint'];
+                $result['output_fingerprint'] = $files['output_fingerprint'];
             }
 
             return $result;
         } finally {
-            if ($this->workspace->identity($files['source']) !== $files['source_identity']
-                || $this->workspace->identity($files['output']) !== $files['output_identity']) {
+            if (! FileFingerprint::matches($files['source'], $files['source_fingerprint'])
+                || ! FileFingerprint::matches($files['output'], $files['output_fingerprint'])) {
                 throw new RuntimeException('The source or staged output changed during quality control.');
             }
         }
     }
 
     /**
-     * @param  array{source: string, output: string, directory: string, source_identity: array<string, int>, output_identity: array<string, int>}  $files
+     * @param  array{source: string, output: string, directory: string, source_fingerprint: string, output_fingerprint: string}  $files
      * @param  Closure(): bool  $stop
      * @param  Closure(array<string, mixed>): void  $progress
      * @return array<string, mixed>

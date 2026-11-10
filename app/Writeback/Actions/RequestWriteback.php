@@ -25,7 +25,7 @@ class RequestWriteback
             $item = $check->transcode()->with('mediaFile.libraryPath')->firstOrFail();
             if ($check->status !== TaskStatus::COMPLETED || $check->verdict !== QualityVerdict::PASSED
                 || $item->status !== TaskStatus::COMPLETED || ! $item->writeback_mode instanceof WritebackMode
-                || ! is_array($check->source_fingerprint) || ! is_array($check->output_fingerprint)
+                || ! is_string($check->source_fingerprint) || ! is_string($check->output_fingerprint)
                 || $item->mediaFile?->libraryPath === null) {
                 return null;
             }

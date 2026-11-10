@@ -2,8 +2,8 @@
 
 namespace App\Transcoding\Actions;
 
+use App\Library\FileFingerprint;
 use App\QualityControl\QualityPolicy;
-use App\QualityControl\QualityWorkspace;
 use App\QualityControl\SampleWindows;
 use App\Transcoding\EncoderQuality;
 use App\Transcoding\OptimizationLimit;
@@ -19,7 +19,7 @@ use RuntimeException;
 class OptimizeTranscode
 {
     public function __construct(private OptimizationMedia $media, private OptimizationSamples $samples,
-        private OptimizationSearch $search, private SampleWindows $windows, private QualityWorkspace $identities, private QualityPolicy $policies) {}
+        private OptimizationSearch $search, private SampleWindows $windows, private QualityPolicy $policies) {}
 
     /**
      * @param  array<string, mixed>  $policy
@@ -39,15 +39,8 @@ class OptimizeTranscode
         }
         $this->policies->settings($qualityPolicy);
         $deadline = min($deadline, microtime(true) + $policy['seconds']);
-        $identity = $this->identities->identity($plan->sourcePath);
-        $guard = function () use ($stop, $plan, $identity): bool {
-            if ($this->identities->identity($plan->sourcePath) !== $identity) {
-                throw new RuntimeException('The source changed during optimization.');
-            }
-
-            return $stop();
-        };
-        $this->media->configure($directory, $deadline, $policy['temporary_bytes'], $guard, $progress);
+        $fingerprint = FileFingerprint::capture($plan->sourcePath);
+        $this->media->configure($directory, $deadline, $policy['temporary_bytes'], $stop, $progress);
         $audit = ['enabled' => true, 'policy' => $policy, 'quality_policy' => $qualityPolicy, 'candidates' => [], 'limits' => [], 'winner' => null, 'non_monotonic' => false, 'termination' => null, 'search_decisions' => [], 'closest' => null];
         try {
             $progress(['phase' => 'measuring_source']);
@@ -139,7 +132,7 @@ class OptimizeTranscode
             return new SkippedTranscode('optimization_inconclusive', $limit->getMessage());
         } finally {
             $progress(['optimization' => $audit]);
-            if ($this->identities->identity($plan->sourcePath) !== $identity) {
+            if (! FileFingerprint::matches($plan->sourcePath, $fingerprint)) {
                 throw new RuntimeException('The source changed during optimization.');
             }
         }

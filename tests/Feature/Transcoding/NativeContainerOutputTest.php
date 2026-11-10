@@ -105,7 +105,7 @@ it('encodes and verifies real subtitles and chapters in the selected container',
         if ($fingerprint === null) {
             throw new RuntimeException('Passing write-back must save its output fingerprint.');
         }
-        expect(hash_file('sha256', $source))->toBe($fingerprint['sha256']);
+        expect(hash_file('sha256', $source))->toBe($fingerprint);
         expect($writeback->inventory_refreshed_at)->not->toBeNull()->and($writeback->staging_cleaned_at)->not->toBeNull();
         expect(is_file($writeback->staging_path))->toBeFalse();
     }

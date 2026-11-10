@@ -2,6 +2,7 @@
 
 namespace App\QualityControl;
 
+use App\Library\FileFingerprint;
 use App\Library\MediaFilePath;
 use App\Models\MediaQualityCheck;
 use App\Tasks\Enums\TaskStatus;
@@ -15,7 +16,7 @@ class QualityWorkspace
     public function __construct(private StagingArea $staging, private MediaFilePath $paths) {}
 
     /**
-     * @return array{source: string, output: string, directory: string, source_identity: array<string, int>, output_identity: array<string, int>}
+     * @return array{source: string, output: string, directory: string, source_fingerprint: string, output_fingerprint: string}
      */
     public function open(MediaQualityCheck $check): array
     {
@@ -36,10 +37,12 @@ class QualityWorkspace
             throw new RuntimeException('The staged output path does not match the accepted attempt.');
         }
         $output = $root.'/'.$relative;
-        $sourceIdentity = $this->identity($check->source_path);
-        $outputIdentity = $this->identity($output);
-        if ($sourceIdentity['size'] !== $check->source_size_bytes || $sourceIdentity['mtime'] !== $check->source_modified_at->getTimestamp()
-            || $outputIdentity['size'] !== $check->output_size_bytes) {
+        $sourceFingerprint = FileFingerprint::capture($check->source_path);
+        $outputFingerprint = FileFingerprint::capture($output);
+        $sourceSize = filesize($check->source_path);
+        $outputSize = filesize($output);
+        if ($sourceSize === false || $outputSize === false || $sourceSize < 1 || $outputSize < 1
+            || $sourceSize !== $check->source_size_bytes || $outputSize !== $check->output_size_bytes) {
             throw new RuntimeException('The source or staged file changed before quality control.');
         }
         $directory = $this->directory($check);
@@ -50,22 +53,7 @@ class QualityWorkspace
         }
 
         return ['source' => $check->source_path, 'output' => $output, 'directory' => $directory,
-            'source_identity' => $sourceIdentity, 'output_identity' => $outputIdentity];
-    }
-
-    /** @return array<string, int> */
-    public function identity(string $path): array
-    {
-        clearstatcache(true);
-        if (! is_file($path) || ! is_readable($path) || is_link($path) || realpath($path) !== $path) {
-            throw new RuntimeException('A media file is missing, unreadable or resolves through a symbolic link.');
-        }
-        $stat = stat($path);
-        if ($stat === false || $stat['size'] < 1) {
-            throw new RuntimeException('A media file is empty or unavailable.');
-        }
-
-        return array_intersect_key($stat, array_flip(['dev', 'ino', 'size', 'mtime', 'ctime']));
+            'source_fingerprint' => $sourceFingerprint, 'output_fingerprint' => $outputFingerprint];
     }
 
     public function clean(MediaQualityCheck $check): void

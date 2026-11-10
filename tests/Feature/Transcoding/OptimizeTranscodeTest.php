@@ -226,3 +226,19 @@ it('rejects a source changed during sampling', function (): void {
     expect(fn () => app(OptimizeTranscode::class)->handle($plan, $policy, $quality, $directory,
         microtime(true) + 60, fn (): bool => false, fn () => null))->toThrow(RuntimeException::class, 'The source changed during optimization.');
 });
+
+it('accepts unchanged source contents after filesystem metadata changes during sampling', function (): void {
+    [$plan, $policy, $quality, $directory] = optimizationFixture(function ($media, $candidate): array {
+        copy($candidate->sourcePath, $candidate->sourcePath.'.replacement');
+        rename($candidate->sourcePath.'.replacement', $candidate->sourcePath);
+        touch($candidate->sourcePath, 1000000000);
+
+        return ['video_bytes' => 400000, 'minimum_vmaf' => 97, 'windows' => [], 'dispersion' => 1.0, 'encode_seconds' => 0.1];
+    });
+    $policy['maximum_candidates'] = 1;
+
+    $result = app(OptimizeTranscode::class)->handle($plan, $policy, $quality, $directory,
+        microtime(true) + 60, fn (): bool => false, fn () => null);
+
+    expect($result)->toBeInstanceOf(TranscodePlan::class);
+});

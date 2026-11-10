@@ -15,8 +15,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property QualityVerdict|null $verdict
- * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string}|null $source_fingerprint
- * @property array{dev:int, ino:int, size:int, mtime:int, ctime:int, sha256:string}|null $output_fingerprint
+ * @property string|null $source_fingerprint
+ * @property string|null $output_fingerprint
  * @property TaskStatus $status
  * @property array<string, mixed> $policy
  * @property array<string, mixed>|null $results
@@ -54,7 +54,7 @@ class MediaQualityCheck extends Model
 
     protected function casts(): array
     {
-        return ['source_fingerprint' => 'array', 'output_fingerprint' => 'array', 'status' => TaskStatus::class, 'verdict' => QualityVerdict::class, 'policy' => 'array', 'expected_contract' => 'array',
+        return ['source_fingerprint' => 'json', 'output_fingerprint' => 'json', 'status' => TaskStatus::class, 'verdict' => QualityVerdict::class, 'policy' => 'array', 'expected_contract' => 'array',
             'results' => 'array', 'binary_versions' => 'array', 'execution_limit_seconds' => 'integer', 'threads' => 'integer',
             'source_size_bytes' => 'integer', 'output_size_bytes' => 'integer', 'source_modified_at' => 'immutable_datetime',
             'cancel_requested_at' => 'immutable_datetime', 'execution_deadline_at' => 'immutable_datetime',

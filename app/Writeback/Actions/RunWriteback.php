@@ -148,7 +148,7 @@ class RunWriteback
     private function copyCandidate(MediaWriteback $receipt): void
     {
         if ($this->files->exists($receipt->candidate_path)) {
-            $this->requireCandidate($receipt, $receipt->candidate_path);
+            $this->requireMatch($receipt->candidate_path, $receipt->output_fingerprint);
             $this->save($receipt, ['phase' => 'copied']);
             $this->cleanCopy($receipt);
 
@@ -159,18 +159,18 @@ class RunWriteback
         }
 
         $previousCopy = $receipt->copy_path;
-        if ($previousCopy !== null && $this->files->owns($previousCopy, $receipt->candidate_identity)) {
-            if (FileFingerprint::matches($previousCopy, $receipt->output_fingerprint, false)) {
+        if ($previousCopy !== null && $this->files->exists($previousCopy)) {
+            if (FileFingerprint::matches($previousCopy, $receipt->output_fingerprint)) {
                 $this->promoteCopy($receipt);
 
                 return;
             }
             $this->assertCurrent($receipt);
-            $this->files->remove($previousCopy, $receipt->candidate_identity ?? []);
+            $this->files->remove($previousCopy);
         }
 
         $copy = $receipt->candidate_path.'.copy-'.$receipt->attempt_token.'.part';
-        $this->save($receipt, ['phase' => 'copying', 'copy_path' => $copy, 'candidate_identity' => null]);
+        $this->save($receipt, ['phase' => 'copying', 'copy_path' => $copy]);
         $input = @fopen($receipt->staging_path, 'rb');
         $output = @fopen($copy, 'x+b');
         if ($input === false || $output === false) {
@@ -183,17 +183,9 @@ class RunWriteback
             throw new RuntimeException('The writeback temporary copy cannot be created exclusively.');
         }
         try {
-            $identity = fstat($output);
-            if ($identity === false) {
-                throw new RuntimeException('The temporary copy identity cannot be read.');
-            }
-            $this->save($receipt, ['candidate_identity' => ['dev' => $identity['dev'], 'ino' => $identity['ino']]]);
             $this->files->syncDirectory(dirname($copy));
-            if (stream_copy_to_stream($input, $output) !== $receipt->output_fingerprint['size']) {
+            if (stream_copy_to_stream($input, $output) === false) {
                 throw new RuntimeException('The writeback copy was incomplete.');
-            }
-            if (! $this->files->owns($copy, $receipt->candidate_identity)) {
-                throw new RuntimeException('The temporary copy identity changed during copying.');
             }
             $permissions = fileperms($receipt->source_path);
             if ($permissions === false || ! chmod($copy, $permissions & 0777)
@@ -204,7 +196,6 @@ class RunWriteback
             fclose($input);
             fclose($output);
         }
-        $this->requireMatch($copy, $receipt->output_fingerprint, false);
         $this->promoteCopy($receipt);
     }
 
@@ -214,17 +205,14 @@ class RunWriteback
         if ($copy === null) {
             throw new RuntimeException('The temporary copy path is missing.');
         }
-        $this->requireCandidate($receipt, $copy);
+        $this->requireMatch($copy, $receipt->output_fingerprint);
         $stream = @fopen($copy, 'rb');
         if ($stream === false) {
             throw new RuntimeException('The verified temporary copy cannot be reopened.');
         }
         try {
-            $identity = fstat($stream);
             $permissions = fileperms($receipt->source_path);
-            if ($identity === false || $identity['dev'] !== ($receipt->candidate_identity['dev'] ?? null)
-                || $identity['ino'] !== ($receipt->candidate_identity['ino'] ?? null)
-                || $permissions === false || ! chmod($copy, $permissions & 0777) || ! fsync($stream)) {
+            if ($permissions === false || ! chmod($copy, $permissions & 0777) || ! fsync($stream)) {
                 throw new RuntimeException('The verified temporary copy could not be synchronized with the original permissions.');
             }
         } finally {
@@ -232,7 +220,7 @@ class RunWriteback
         }
         $this->assertCurrent($receipt);
         $this->files->link($copy, $receipt->candidate_path);
-        $this->requireCandidate($receipt, $receipt->candidate_path);
+        $this->requireMatch($receipt->candidate_path, $receipt->output_fingerprint);
         $this->save($receipt, ['phase' => 'copied']);
         $this->cleanCopy($receipt);
     }
@@ -240,9 +228,9 @@ class RunWriteback
     private function cleanCopy(MediaWriteback $receipt): void
     {
         $copy = $receipt->copy_path;
-        if ($copy !== null && $this->files->owns($copy, $receipt->candidate_identity)) {
+        if ($copy !== null && $this->files->exists($copy)) {
             $this->assertCurrent($receipt);
-            $this->files->remove($copy, $receipt->candidate_identity ?? []);
+            $this->files->remove($copy);
         }
         $this->save($receipt, ['copy_path' => null]);
     }
@@ -252,27 +240,19 @@ class RunWriteback
         $source = $receipt->source_path;
         $backup = $receipt->backup_path;
         $destination = $receipt->destination_path;
-        $identity = $receipt->candidate_identity;
         $hasBackup = $this->files->exists($backup);
-        $published = $this->files->exists($destination) && $this->files->owns($destination, $identity);
+        $published = $this->files->exists($destination) && FileFingerprint::matches($destination, $receipt->output_fingerprint);
 
         if ($hasBackup) {
-            if (! $this->files->owns($backup, $receipt->source_fingerprint)) {
-                throw new RuntimeException('The original backup collides with an unrelated file.');
-            }
-            $this->requireMatch($backup, $receipt->source_fingerprint, false);
+            $this->requireMatch($backup, $receipt->source_fingerprint);
         }
         if ($published) {
-            $this->requireCandidate($receipt, $destination);
             if ($receipt->phase !== 'replacing' && $receipt->phase !== 'installed') {
                 throw new RuntimeException('The destination was installed outside the replacement journal.');
             }
         } else {
             $this->requireMatch($receipt->staging_path, $receipt->output_fingerprint);
-            if (! $this->files->owns($receipt->candidate_path, $identity)) {
-                throw new RuntimeException('The verified candidate identity changed.');
-            }
-            $this->requireMatch($receipt->candidate_path, $receipt->output_fingerprint, false);
+            $this->requireMatch($receipt->candidate_path, $receipt->output_fingerprint);
             if ($this->files->exists($destination) && $destination !== $source) {
                 throw new RuntimeException('The writeback destination already exists.');
             }
@@ -282,28 +262,25 @@ class RunWriteback
                 $hasBackup = true;
             }
             if ($destination === $source && $this->files->exists($source)) {
-                $this->requireOriginal($receipt, $source);
                 $this->assertCurrent($receipt);
                 $this->files->remove($source, $receipt->source_fingerprint);
             }
             $this->assertCurrent($receipt);
             $this->files->link($receipt->candidate_path, $destination);
-            $this->requireCandidate($receipt, $destination);
+            $this->requireMatch($destination, $receipt->output_fingerprint);
         }
 
         $this->save($receipt, ['phase' => 'installed', 'installed_at' => now()]);
         if ($destination !== $source && $this->files->exists($source)) {
-            $this->requireOriginal($receipt, $source);
             $this->assertCurrent($receipt);
             $this->files->remove($source, $receipt->source_fingerprint);
         }
         if ($this->files->exists($receipt->candidate_path)) {
             $this->assertCurrent($receipt);
-            $this->files->remove($receipt->candidate_path, $identity ?? []);
+            $this->files->remove($receipt->candidate_path, $receipt->output_fingerprint);
         }
-        $this->requireCandidate($receipt, $destination);
+        $this->requireMatch($destination, $receipt->output_fingerprint);
         if ($hasBackup) {
-            $this->requireOriginal($receipt, $backup);
             $this->assertCurrent($receipt);
             $this->files->remove($backup, $receipt->source_fingerprint);
         }
@@ -315,7 +292,7 @@ class RunWriteback
         try {
             if ($this->current($receipt)->exists() && ! $this->files->exists($receipt->source_path)
                 && $this->files->exists($receipt->backup_path)) {
-                $this->requireOriginal($receipt, $receipt->backup_path);
+                $this->requireMatch($receipt->backup_path, $receipt->source_fingerprint);
                 $this->files->link($receipt->backup_path, $receipt->source_path);
             }
         } catch (Throwable) {
@@ -323,26 +300,9 @@ class RunWriteback
         }
     }
 
-    private function requireCandidate(MediaWriteback $receipt, string $path): void
+    private function requireMatch(string $path, string $fingerprint): void
     {
-        if (! $this->files->owns($path, $receipt->candidate_identity)) {
-            throw new RuntimeException('The installed candidate identity changed.');
-        }
-        $this->requireMatch($path, $receipt->output_fingerprint, false);
-    }
-
-    private function requireOriginal(MediaWriteback $receipt, string $path): void
-    {
-        if (! $this->files->owns($path, $receipt->source_fingerprint)) {
-            throw new RuntimeException('The original file identity changed.');
-        }
-        $this->requireMatch($path, $receipt->source_fingerprint, false);
-    }
-
-    /** @param array<string, int|string> $fingerprint */
-    private function requireMatch(string $path, array $fingerprint, bool $sameFile = true): void
-    {
-        if (! FileFingerprint::matches($path, $fingerprint, $sameFile)) {
+        if (! FileFingerprint::matches($path, $fingerprint)) {
             throw new RuntimeException('A writeback file changed or is unavailable: '.$path);
         }
     }

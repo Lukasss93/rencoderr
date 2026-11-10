@@ -14,24 +14,6 @@ class WritebackFilesystem
         return @lstat($path) !== false;
     }
 
-    /** @param array<string, int|string>|null $identity */
-    public function owns(string $path, ?array $identity): bool
-    {
-        if ($identity === null) {
-            return false;
-        }
-
-        try {
-            FileFingerprint::assertCanonical($path);
-        } catch (RuntimeException) {
-            return false;
-        }
-        $stat = @lstat($path);
-
-        return $stat !== false && ($stat['mode'] & 0170000) === 0100000
-            && $stat['dev'] === ($identity['dev'] ?? null) && $stat['ino'] === ($identity['ino'] ?? null);
-    }
-
     public function link(string $from, string $to): void
     {
         FileFingerprint::assertCanonical($from);
@@ -42,11 +24,14 @@ class WritebackFilesystem
         $this->syncDirectory(dirname($to));
     }
 
-    /** @param array<string, int|string> $identity */
-    public function remove(string $path, array $identity): void
+    public function remove(string $path, ?string $fingerprint = null): void
     {
-        if (! $this->owns($path, $identity) || ! @unlink($path)) {
-            throw new RuntimeException('Writeback cannot remove a file whose identity changed.');
+        FileFingerprint::assertCanonical($path);
+        if ($fingerprint !== null && ! FileFingerprint::matches($path, $fingerprint)) {
+            throw new RuntimeException('Writeback cannot remove a file whose contents changed.');
+        }
+        if (! @unlink($path)) {
+            throw new RuntimeException('The writeback file could not be removed.');
         }
         $this->syncDirectory(dirname($path));
     }
