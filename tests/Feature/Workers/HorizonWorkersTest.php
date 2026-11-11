@@ -24,6 +24,12 @@ use Laravel\Horizon\WorkerProcess;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\NullOutput;
 use Symfony\Component\Process\Process;
+use Tevkert\QueuePrefork\Client\Broker;
+use Tevkert\QueuePrefork\Client\ForkedProcess;
+use Tevkert\QueuePrefork\Horizon\PreforkAddSupervisor;
+use Tevkert\QueuePrefork\Master as PreforkMaster;
+use Tevkert\QueuePrefork\Preflight;
+use Tevkert\QueuePrefork\Support\Channel;
 
 use function Pest\Laravel\mock;
 
@@ -72,6 +78,40 @@ it('loads the saved limit before Horizon provisions supervisors', function (): v
         ->and($supervisor->options->minProcesses)->toBe(1)
         ->and($supervisor->options->queue)->toBe('scans,probes,default')
         ->and($supervisor->process->getCommandLine())->toContain('--max-processes=4');
+});
+
+it('does not disable prefork with a custom supervisor binding', function (): void {
+    expect(Preflight::check(app(), probes: false))
+        ->not->toContain('the app binds '.AddSupervisor::class.' itself');
+});
+
+it('applies saved limits when prefork creates supervisor processes', function (): void {
+    mock(HorizonCommandQueue::class)->shouldReceive('flush');
+    app(WorkerLimit::class)->save(4);
+    app()->bind(AddSupervisor::class, PreforkAddSupervisor::class);
+    $prefork = app(PreforkMaster::class);
+    app()->instance(PreforkMaster::class, $prefork);
+    $stream = fopen('php://memory', 'w+b');
+    if ($stream === false) {
+        throw new LogicException('The prefork test channel requires an open stream.');
+    }
+
+    try {
+        $prefork->active = true;
+        $prefork->broker = new Broker(new Channel($stream), 'test-');
+        $options = ProvisioningPlan::get('test-master')->optionsFor('*', 'supervisor-1');
+        $master = new MasterSupervisor;
+
+        app(AddSupervisor::class)->process($master, $options->toArray());
+        $supervisor = $master->supervisors->first();
+
+        expect($supervisor->options->maxProcesses)->toBe(4)
+            ->and($supervisor->process)->toBeInstanceOf(ForkedProcess::class)
+            ->and($supervisor->process->getCommandLine())->toContain('--max-processes=4')
+            ->and($supervisor->process->isStarted())->toBeFalse();
+    } finally {
+        fclose($stream);
+    }
 });
 
 it('uses the saved limit before a replacement supervisor starts with stale options', function (): void {

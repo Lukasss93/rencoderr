@@ -117,6 +117,8 @@ The library filesystem must allow writes, hard links and directory synchronizati
 
 Under **Settings → Workers**, set independent limits for standard tasks, encoding, write-back, and quality control. Each defaults to one worker. Changes apply without restarting the container; workers already processing a file finish before retiring.
 
+[Queue-prefork](https://github.com/tevkert/queue-prefork) is enabled by default to share compiled PHP code between Horizon processes. Saved worker limits still apply. After deploying, run `docker compose exec --user rencoderr rencoderr php artisan queue-prefork:doctor` to check readiness and `docker compose exec --user rencoderr rencoderr php artisan queue-prefork:status` to inspect the running processes. Set `QUEUE_PREFORK=false`, rebuild cached configuration, and restart the workers to disable it.
+
 ## Hardware acceleration
 
 Hardware encoding requires a compatible host GPU and driver. For Intel or AMD devices, add this under the Compose service:

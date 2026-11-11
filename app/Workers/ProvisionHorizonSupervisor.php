@@ -12,7 +12,7 @@ use Throwable;
  */
 class ProvisionHorizonSupervisor extends AddSupervisor
 {
-    public function __construct(private WorkerLimit $limit, private HorizonCommandQueue $commands) {}
+    public function __construct(private AddSupervisor $command, private WorkerLimit $limit, private HorizonCommandQueue $commands) {}
 
     /** @param array<string, mixed> $options */
     public function process(MasterSupervisor $master, array $options): void
@@ -28,6 +28,6 @@ class ProvisionHorizonSupervisor extends AddSupervisor
             }
         }
 
-        parent::process($master, $options);
+        $this->command->process($master, $options);
     }
 }
