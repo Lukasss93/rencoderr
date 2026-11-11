@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Library\Actions\RecoverScans;
+use App\Library\LibraryPathLock;
+use App\Models\LibraryPath;
 use App\Probe\Actions\RecoverProbes;
 use App\QualityControl\Actions\RecoverQualityChecks;
 use App\Transcoding\Actions\RecoverTranscodes;
@@ -19,6 +21,9 @@ class RecoverTasks extends Command
     public function handle(RecoverScans $scans, RecoverProbes $probes, RecoverTranscodes $transcodes, RecoverQualityChecks $quality, RecoverWritebacks $writebacks): int
     {
         try {
+            foreach (LibraryPath::query()->select('id')->lazyById() as $path) {
+                LibraryPathLock::forPath($path->id)->forceRelease();
+            }
             $this->info('Recovered '.$scans->handle().' folder scans.');
             $this->info('Recovered '.$probes->handle().' media probes.');
             $this->info('Recovered '.$transcodes->handle().' media transcodes.');

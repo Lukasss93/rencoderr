@@ -3,6 +3,7 @@
 namespace App\Writeback\Actions;
 
 use App\Library\FileFingerprint;
+use App\Library\LibraryPathLock;
 use App\Models\LibraryPath;
 use App\Models\MediaWriteback;
 use App\QualityControl\Enums\QualityVerdict;
@@ -14,7 +15,6 @@ use App\Writeback\Events\WritebackInstalled;
 use App\Writeback\WritebackFilesystem;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -33,24 +33,37 @@ class RunWriteback
 
         Cache::lock('writeback-source:'.hash('sha256', $receipt->source_path), (int) config('writeback.timeout_seconds', 21600) + 60)
             ->get(function () use ($receipt, $requestToken): void {
-                $attempt = (string) Str::uuid();
-                $claimed = MediaWriteback::query()->whereKey($receipt->id)->where('request_token', $requestToken)
-                    ->where('status', TaskStatus::QUEUED)->update([
-                        'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(), 'error' => null,
-                    ]);
-                if ($claimed !== 1) {
+                $pathId = $receipt->transcode()->firstOrFail()->mediaFile?->library_path_id;
+                if ($pathId === null) {
+                    MediaWriteback::query()->whereKey($receipt->id)->where('request_token', $requestToken)
+                        ->where('status', TaskStatus::QUEUED)->update([
+                            'status' => TaskStatus::FAILED, 'finished_at' => now(),
+                            'error' => 'The library file was removed before writeback could start.',
+                        ]);
+
                     return;
                 }
-                $receipt->refresh();
+                LibraryPathLock::forPath($pathId, (int) config('writeback.timeout_seconds', 21600) + 60)
+                    ->get(function () use ($receipt, $requestToken): void {
+                        $attempt = (string) Str::uuid();
+                        $claimed = MediaWriteback::query()->whereKey($receipt->id)->where('request_token', $requestToken)
+                            ->where('status', TaskStatus::QUEUED)->update([
+                                'status' => TaskStatus::RUNNING, 'attempt_token' => $attempt, 'started_at' => now(), 'error' => null,
+                            ]);
+                        if ($claimed !== 1) {
+                            return;
+                        }
+                        $receipt->refresh();
 
-                try {
-                    $this->run($receipt);
-                } catch (Throwable $exception) {
-                    $this->restoreOriginal($receipt);
-                    $this->current($receipt)->update([
-                        'status' => TaskStatus::FAILED, 'error' => Str::limit($exception->getMessage(), 4000), 'finished_at' => now(),
-                    ]);
-                }
+                        try {
+                            $this->run($receipt);
+                        } catch (Throwable $exception) {
+                            $this->restoreOriginal($receipt);
+                            $this->current($receipt)->update([
+                                'status' => TaskStatus::FAILED, 'error' => Str::limit($exception->getMessage(), 4000), 'finished_at' => now(),
+                            ]);
+                        }
+                    });
             });
     }
 
@@ -88,17 +101,15 @@ class RunWriteback
                 || ($receipt->destination_path !== $receipt->source_path && $this->files->exists($receipt->destination_path)))) {
             throw new RuntimeException('The writeback backup or destination already exists.');
         }
-        $this->save($receipt, ['phase' => 'replacing']);
-        DB::transaction(function () use ($receipt): void {
-            $path = LibraryPath::query()->whereKey($receipt->transcode()->firstOrFail()->mediaFile()->firstOrFail()->library_path_id)->lockForUpdate()->firstOrFail();
-            if ($path->scan_status === TaskStatus::RUNNING) {
-                $this->save($receipt, ['status' => TaskStatus::QUEUED, 'attempt_token' => null]);
+        $path = LibraryPath::query()->whereKey($receipt->transcode()->firstOrFail()->mediaFile()->firstOrFail()->library_path_id)->firstOrFail();
+        if ($path->scan_status === TaskStatus::RUNNING) {
+            $this->save($receipt, ['status' => TaskStatus::QUEUED, 'attempt_token' => null]);
 
-                return;
-            }
-            $this->install($receipt);
-            rescue(fn () => event(new WritebackInstalled($receipt->id)));
-        });
+            return;
+        }
+        $this->save($receipt, ['phase' => 'replacing']);
+        $this->install($receipt);
+        rescue(fn () => event(new WritebackInstalled($receipt->id)));
     }
 
     private function validatePaths(MediaWriteback $receipt): void

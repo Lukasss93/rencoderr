@@ -1,46 +1,18 @@
 <?php
 
 use App\Library\FileFingerprint;
-use App\Models\MediaQualityCheck;
-use App\Models\MediaWriteback;
+use App\Library\LibraryPathLock;
 use App\QualityControl\Enums\QualityVerdict;
 use App\Tasks\Enums\TaskStatus;
-use App\Transcoding\StagingArea;
 use App\Writeback\Actions\RunWriteback;
 use App\Writeback\Enums\WritebackMode;
 use App\Writeback\Events\WritebackInstalled;
 use App\Writeback\WritebackFilesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
-function writebackFixture(string $extension = 'mkv', WritebackMode $mode = WritebackMode::REPLACE): MediaWriteback
-{
-    $directory = mediaDirectory(['movie.mkv' => 'original media']);
-    $disk = Storage::fake('transcodes');
-    $source = $directory.'/movie.mkv';
-    $check = MediaQualityCheck::factory()->create(['status' => TaskStatus::COMPLETED, 'verdict' => QualityVerdict::PASSED]);
-    $transcode = $check->transcode()->firstOrFail();
-    $relative = app(StagingArea::class)->directory($transcode->id, $check->transcode_attempt_token).'/output.'.$extension;
-    $disk->put($relative, 'encoded media');
-    $output = $disk->path($relative);
-    $transcode->update(['source_path' => $source, 'output_path' => $relative]);
-    $transcode->mediaFile()->firstOrFail()->update(['relative_path' => 'movie.mkv']);
-    $check->update(['source_path' => $source, 'output_path' => $relative,
-        'source_fingerprint' => FileFingerprint::capture($source), 'output_fingerprint' => FileFingerprint::capture($output)]);
-    $transcode->mediaFile()->firstOrFail()->libraryPath()->firstOrFail()->update(['path' => $directory]);
-    $token = (string) Str::uuid();
-
-    return MediaWriteback::query()->create([
-        'media_transcode_id' => $transcode->id, 'media_quality_check_id' => $check->id,
-        'status' => TaskStatus::QUEUED, 'mode' => $mode, 'request_token' => $token, 'comparison' => [],
-        'source_path' => $source, 'staging_path' => $output,
-        'candidate_path' => $directory.'/movie.rencoderr-'.$token.'.pending.'.$extension,
-        'destination_path' => $directory.'/movie.'.$extension, 'backup_path' => $source.'.rencoderr-'.$token.'.backup',
-        'source_fingerprint' => FileFingerprint::capture($source), 'output_fingerprint' => FileFingerprint::capture($output),
-    ]);
-}
+require_once __DIR__.'/../../Support/WritebackFixtures.php';
 
 it('installs verified output and removes the temporary backup', function (string $extension): void {
     $receipt = writebackFixture($extension);
@@ -329,20 +301,25 @@ it('does not recreate the original while an unrelated replacement occupies its p
     expect(file_get_contents($receipt->backup_path))->toBe('original media');
 });
 
-it('delivers the installed event before the installation transaction releases its lock', function (): void {
+it('delivers the installed event without holding a database transaction', function (): void {
     $receipt = writebackFixture('mp4');
     $level = DB::transactionLevel();
     $deliveredAt = null;
-    Event::listen(WritebackInstalled::class, function (WritebackInstalled $event) use ($receipt, &$deliveredAt): void {
+    $pathId = $receipt->transcode()->firstOrFail()->mediaFile()->firstOrFail()->library_path_id;
+    $libraryLocked = false;
+    Event::listen(WritebackInstalled::class, function (WritebackInstalled $event) use ($receipt, $pathId, &$deliveredAt, &$libraryLocked): void {
         if ($event->writebackId === $receipt->id) {
             $deliveredAt = DB::transactionLevel();
+            $libraryLocked = LibraryPathLock::forPath($pathId, 60)->get(fn (): bool => true) === false;
         }
     });
 
     app(RunWriteback::class)->handle($receipt->id, $receipt->request_token);
 
     expect($receipt->refresh()->status)->toBe(TaskStatus::COMPLETED);
-    expect($deliveredAt)->toBe($level + 1);
+    expect($deliveredAt)->toBe($level);
+    expect($libraryLocked)->toBeTrue();
+    expect(LibraryPathLock::forPath($pathId, 60)->get(fn (): bool => true))->toBeTrue();
 });
 
 it('recovers a matching copy when promotion succeeds before a worker failure', function (): void {

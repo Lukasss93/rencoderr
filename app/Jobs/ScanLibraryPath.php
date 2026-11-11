@@ -2,16 +2,19 @@
 
 namespace App\Jobs;
 
+use App\Library\LibraryPathLock;
 use App\Library\MediaScanner;
 use App\Models\LibraryPath;
 use App\Tasks\Enums\TaskStatus;
 use App\Tasks\Enums\WorkQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\InteractsWithQueue;
 use Throwable;
 
 class ScanLibraryPath implements ShouldQueue
 {
+    use InteractsWithQueue;
     use Queueable;
 
     /**
@@ -22,7 +25,9 @@ class ScanLibraryPath implements ShouldQueue
 
     public int $timeout = self::TIMEOUT_SECONDS;
 
-    public int $tries = 1;
+    public int $tries = 0;
+
+    public int $maxExceptions = 1;
 
     public bool $failOnTimeout = true;
 
@@ -33,12 +38,23 @@ class ScanLibraryPath implements ShouldQueue
 
     public function handle(MediaScanner $scanner): void
     {
-        $claimed = LibraryPath::query()->scanRequest($this->pathId, $this->token)
-            ->where('scan_status', TaskStatus::QUEUED)
-            ->update(['scan_status' => TaskStatus::RUNNING, 'scan_started_at' => now()]);
+        $lock = LibraryPathLock::forPath($this->pathId, self::TIMEOUT_SECONDS + 60);
+        if (! $lock->get()) {
+            $this->release(30);
 
-        if ($claimed === 1) {
-            $scanner->scan($this->pathId, $this->token);
+            return;
+        }
+
+        try {
+            $claimed = LibraryPath::query()->scanRequest($this->pathId, $this->token)
+                ->where('scan_status', TaskStatus::QUEUED)
+                ->update(['scan_status' => TaskStatus::RUNNING, 'scan_started_at' => now()]);
+
+            if ($claimed === 1) {
+                $scanner->scan($this->pathId, $this->token);
+            }
+        } finally {
+            $lock->release();
         }
     }
 

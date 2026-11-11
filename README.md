@@ -111,6 +111,8 @@ Only completed, passing quality checks can write back. Checks disabled in the me
 
 Pending copies are tracked and excluded from scans and transcode requests. Changed sources or encoded copies, unavailable folders and permission failures stop replacement and show an error. Fix the cause and use **Retry write-back** on the media detail page. Interrupted copies and replacements recover during startup; an installed file is not installed again. After installation the inventory is refreshed, a new media inspection is requested, and the staging output is removed. Reclaimed-space statistics appear only after replacement completes.
 
+Scans and write-backs share a cache lock per library folder (Redis in the container). Work waiting for the folder remains queued. File copying, checksums and replacement run outside database transactions, so other workers can keep saving progress. Startup recovery clears interrupted folder locks before workers start. Container sessions also use Redis; upgrading from database sessions requires signing in again.
+
 The library filesystem must allow writes, hard links and directory synchronization. Write-back has its own worker pool and a configurable `WRITEBACK_TIMEOUT_SECONDS` limit (default: six hours). This workflow applies to new transcodes; existing completed results are not installed automatically.
 
 ### Workers

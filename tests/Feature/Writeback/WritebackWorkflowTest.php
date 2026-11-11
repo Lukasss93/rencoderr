@@ -2,6 +2,7 @@
 
 use App\Jobs\WriteMediaFile;
 use App\Library\FileFingerprint;
+use App\Library\LibraryPathLock;
 use App\Library\Listeners\RefreshAfterWriteback;
 use App\Library\MediaScanner;
 use App\Models\MediaFile;
@@ -200,8 +201,9 @@ it('requeues interrupted writebacks with new tokens but leaves approvals waiting
     }
     $old = $writeback->request_token;
     Cache::lock('writeback-source:'.hash('sha256', $writeback->source_path), 21660)->get();
+    LibraryPathLock::forPath($check->transcode()->firstOrFail()->mediaFile()->firstOrFail()->library_path_id, 21660)->get();
     $writeback->update(['status' => TaskStatus::RUNNING, 'attempt_token' => (string) Str::uuid()]);
-    app(RecoverWritebacks::class)->handle();
+    artisanCommand('tasks:recover')->assertSuccessful();
     expect($writeback->refresh()->request_token)->not->toBe($old);
     app(RunWriteback::class)->handle($writeback->id, $old);
     expect(file_get_contents($writeback->source_path))->toBe('video');

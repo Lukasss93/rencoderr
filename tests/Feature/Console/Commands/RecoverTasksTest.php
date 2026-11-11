@@ -2,6 +2,7 @@
 
 use App\Jobs\ProbeMediaFile;
 use App\Jobs\ScanLibraryPath;
+use App\Library\LibraryPathLock;
 use App\Library\MediaScanner;
 use App\Models\Library;
 use App\Models\LibraryPath;
@@ -45,6 +46,7 @@ it('makes old jobs and failures harmless across repeated recovery', function ():
         'scan_status' => TaskStatus::RUNNING, 'scan_token' => 'old', 'scan_started_at' => now(),
     ]);
     $old = new ScanLibraryPath($path->id, 'old');
+    LibraryPathLock::forPath($path->id, 1860)->get();
     artisanCommand('tasks:recover')->assertSuccessful();
     $first = new ScanLibraryPath($path->id, (string) $path->refresh()->scan_token);
     artisanCommand('tasks:recover')->assertSuccessful();
