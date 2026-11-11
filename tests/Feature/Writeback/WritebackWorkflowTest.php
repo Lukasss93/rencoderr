@@ -87,6 +87,7 @@ it('queues one writeback for a newly passed encode and keeps the source unchange
     expect(MediaWriteback::query()->count())->toBe(1);
     expect(file_get_contents($check->source_path))->toBe('video');
     Queue::assertPushed(WriteMediaFile::class, 1);
+    Queue::assertPushed(WriteMediaFile::class, fn (WriteMediaFile $job): bool => $job->queue === 'writeback' && $job->connection === 'redis-writeback');
 });
 
 it('installs and cleans staged output through the Docker storage symlink', function (): void {

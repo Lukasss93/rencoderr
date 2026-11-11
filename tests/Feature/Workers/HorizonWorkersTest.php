@@ -253,6 +253,7 @@ it('provisions and refreshes each supervisor with its own limit', function (): v
     $limit = app(WorkerLimit::class);
     $limit->save(4);
     $limit->save(2, WorkerPool::TRANSCODES);
+    $limit->save(3, WorkerPool::WRITEBACK);
     $master = new MasterSupervisor;
     $plan = ProvisioningPlan::get('test-master');
 
@@ -263,29 +264,40 @@ it('provisions and refreshes each supervisor with its own limit', function (): v
     expect($master->supervisors->get(0)->options->maxProcesses)->toBe(4)
         ->and($master->supervisors->get(0)->options->queue)->toBe('scans,probes,default')
         ->and($master->supervisors->get(1)->options->maxProcesses)->toBe(2)
-        ->and($master->supervisors->get(1)->options->queue)->toBe('transcodes,writeback')
-        ->and($master->supervisors->get(1)->options->connection)->toBe('redis-transcodes');
+        ->and($master->supervisors->get(1)->options->queue)->toBe('transcodes')
+        ->and($master->supervisors->get(1)->options->connection)->toBe('redis-transcodes')
+        ->and($master->supervisors->get(2)->options->maxProcesses)->toBe(3)
+        ->and($master->supervisors->get(2)->options->queue)->toBe('writeback')
+        ->and($master->supervisors->get(2)->options->connection)->toBe('redis-writeback');
 
     $standard = new Supervisor($master->supervisors->get(0)->options);
     $transcodes = new Supervisor($master->supervisors->get(1)->options);
+    $writeback = new Supervisor($master->supervisors->get(2)->options);
     $transcodes->working = false;
     $limit->save(1, WorkerPool::TRANSCODES);
+    $limit->save(5, WorkerPool::WRITEBACK);
     Event::dispatch(new SupervisorLooped($standard));
     Event::dispatch(new SupervisorLooped($transcodes));
+    Event::dispatch(new SupervisorLooped($writeback));
 
     expect($standard->options->maxProcesses)->toBe(4)
         ->and($transcodes->options->maxProcesses)->toBe(1)
-        ->and($transcodes->working)->toBeFalse();
+        ->and($transcodes->working)->toBeFalse()
+        ->and($writeback->options->maxProcesses)->toBe(5);
 });
 
-it('reports the requested pool status without using another pool', function (): void {
+it('reports the requested pool status without using another pool', function (WorkerPool $pool, WorkerState $state, int $limit, int $workers): void {
     mock(SupervisorRepository::class)->shouldReceive('all')->andReturn([
         (object) ['name' => 'local:supervisor-1', 'status' => 'running', 'processes' => ['redis:scans,probes,default' => 4], 'options' => ['maxProcesses' => 5]],
         (object) ['name' => 'local:supervisor-transcodes', 'status' => 'paused', 'processes' => ['redis-transcodes:transcodes' => 1], 'options' => ['maxProcesses' => 2]],
+        (object) ['name' => 'local:supervisor-writeback', 'status' => 'running', 'processes' => ['redis-writeback:writeback' => 3], 'options' => ['maxProcesses' => 4]],
     ]);
-    $status = app(HorizonWorkers::class)->status(WorkerPool::TRANSCODES);
-    expect($status->state)->toBe(WorkerState::PAUSED)->and($status->limit)->toBe(2)->and($status->workers)->toBe(1);
-});
+    $status = app(HorizonWorkers::class)->status($pool);
+    expect($status->state)->toBe($state)->and($status->limit)->toBe($limit)->and($status->workers)->toBe($workers);
+})->with([
+    'transcodes' => [WorkerPool::TRANSCODES, WorkerState::PAUSED, 2, 1],
+    'writeback' => [WorkerPool::WRITEBACK, WorkerState::RUNNING, 4, 3],
+]);
 
 it('keeps transcode reservations beyond supervisor timeout and standard queues isolated', function (): void {
     $plan = ProvisioningPlan::get('test-master');
@@ -295,8 +307,21 @@ it('keeps transcode reservations beyond supervisor timeout and standard queues i
 
     expect($standard->queue)->toBe('scans,probes,default')
         ->and($standard->timeout)->toBe(1830)
-        ->and($transcodes->queue)->toBe('transcodes,writeback')
+        ->and($transcodes->queue)->toBe('transcodes')
         ->and($transcodes->timeout)->toBe($timeout + 120)
         ->and(config('queue.connections.redis-transcodes.retry_after'))->toBe($timeout + 180)
         ->and(config('queue.connections.redis-transcodes.connection'))->toBe(config('queue.connections.redis.connection'));
+});
+
+it('isolates writebacks from transcodes with their own reservation timeout', function (): void {
+    $writeback = ProvisioningPlan::get('test-master')->optionsFor('*', 'supervisor-writeback');
+    $timeout = config('writeback.timeout_seconds');
+
+    expect($writeback)->not->toBeNull();
+    expect($writeback->queue)->toBe('writeback')
+        ->and($writeback->connection)->toBe('redis-writeback')
+        ->and($writeback->maxProcesses)->toBe(1)
+        ->and($writeback->timeout)->toBe($timeout + 120)
+        ->and(config('queue.connections.redis-writeback.retry_after'))->toBe($timeout + 180)
+        ->and(config('queue.connections.redis-writeback.connection'))->toBe(config('queue.connections.redis.connection'));
 });

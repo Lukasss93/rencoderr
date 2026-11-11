@@ -225,20 +225,32 @@ return [
         ],
         'supervisor-transcodes' => [
             'connection' => 'redis-transcodes',
-            'queue' => [WorkQueue::TRANSCODES->value, WorkQueue::WRITEBACK->value],
+            'queue' => [WorkQueue::TRANSCODES->value],
             'balance' => false,
             'maxProcesses' => (int) env('HORIZON_TRANSCODE_WORKERS', 1),
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 128,
             'tries' => 1,
-            'timeout' => max(1, (int) env('TRANSCODE_TIMEOUT_SECONDS', 604800), (int) env('WRITEBACK_TIMEOUT_SECONDS', 21600)) + 120,
+            'timeout' => max(1, (int) env('TRANSCODE_TIMEOUT_SECONDS', 604800)) + 120,
+            'nice' => 0,
+        ],
+        'supervisor-writeback' => [
+            'connection' => 'redis-writeback',
+            'queue' => [WorkQueue::WRITEBACK->value],
+            'balance' => false,
+            'maxProcesses' => (int) env('HORIZON_WRITEBACK_WORKERS', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => max(1, (int) env('WRITEBACK_TIMEOUT_SECONDS', 21600)) + 120,
             'nice' => 0,
         ],
     ],
 
     'environments' => [
-        '*' => ['supervisor-1' => [], 'supervisor-transcodes' => [], 'supervisor-quality-control' => []],
+        '*' => ['supervisor-1' => [], 'supervisor-transcodes' => [], 'supervisor-writeback' => [], 'supervisor-quality-control' => []],
     ],
 
     /*

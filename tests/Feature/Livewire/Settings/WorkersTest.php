@@ -140,3 +140,29 @@ it('saves quality-control capacity independently and validates its input', funct
     expect(app(WorkerLimit::class)->get(WorkerPool::QUALITY_CONTROL))->toBe(2)
         ->and(app(WorkerLimit::class)->get(WorkerPool::TRANSCODES))->toBe(1);
 });
+
+it('saves writeback capacity independently from unsaved inputs', function (): void {
+    $limit = app(WorkerLimit::class);
+    $limit->save(4);
+    $limit->save(2, WorkerPool::TRANSCODES);
+
+    Livewire::test(Workers::class)->assertSet('writebackMaxWorkers', '1')
+        ->set('maxWorkers', 'invalid')->set('transcodeMaxWorkers', 'invalid')
+        ->set('writebackMaxWorkers', '3')->call('saveWriteback')->assertHasNoErrors()
+        ->assertDispatched('ts-ui:toast', title: 'Writeback worker limit saved.');
+
+    expect(Setting::valueOf('writeback_max_workers'))->toBe(3)
+        ->and($limit->get())->toBe(4)
+        ->and($limit->get(WorkerPool::TRANSCODES))->toBe(2);
+    Livewire::test(Workers::class)->assertSet('writebackMaxWorkers', '3')
+        ->assertSee('Writeback workers')->assertViewHas('writebackSavedLimit', 3);
+});
+
+it('rejects invalid writeback limits without changing saved capacity', function (string $value): void {
+    Setting::factory()->create(['key' => 'writeback_max_workers', 'value' => 2]);
+
+    Livewire::test(Workers::class)->set('writebackMaxWorkers', $value)->call('saveWriteback')
+        ->assertHasErrors('writebackMaxWorkers')->assertNotDispatched('ts-ui:toast');
+
+    expect(Setting::valueOf('writeback_max_workers'))->toBe(2);
+})->with(['', '0', '-1', '1.5', 'many', '999999999999999999999']);

@@ -26,7 +26,7 @@ class WriteMediaFile implements ShouldQueue
     public function __construct(public int $writebackId, public string $requestToken)
     {
         $this->timeout = max(1, (int) config('writeback.timeout_seconds', 21600));
-        $this->onConnection('redis-transcodes')->onQueue(WorkQueue::WRITEBACK);
+        $this->onConnection('redis-writeback')->onQueue(WorkQueue::WRITEBACK);
     }
 
     public function handle(RunWriteback $run): void

@@ -33,6 +33,19 @@
         </form>
     </x-card>
 
+    <x-card header="Writeback workers">
+        <form wire:submit="saveWriteback" class="space-y-4">
+            <x-input label="Maximum writeback workers" type="number" min="1" step="1" wire:model="writebackMaxWorkers"
+                hint="Writebacks use a separate worker pool and can run while transcodes are encoding." />
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                Changes apply automatically. Active writebacks finish before excess workers stop.
+            </p>
+            <div class="flex justify-end">
+                <x-button text="Save" submit loading="saveWriteback" />
+            </div>
+        </form>
+    </x-card>
+
     <x-card header="Quality-control workers">
         <form wire:submit="saveQuality" class="space-y-4">
             <x-input label="Maximum quality-control workers" type="number" min="1" step="1" wire:model="qualityMaxWorkers"
@@ -44,7 +57,7 @@
         </form>
     </x-card>
 
-    @foreach ([['Worker status', $savedLimit, $status], ['Transcode worker status', $transcodeSavedLimit, $transcodeStatus], ['Quality-control worker status', $qualitySavedLimit, $qualityStatus]] as [$heading, $poolLimit, $poolStatus])
+    @foreach ([['Worker status', $savedLimit, $status], ['Transcode worker status', $transcodeSavedLimit, $transcodeStatus], ['Writeback worker status', $writebackSavedLimit, $writebackStatus], ['Quality-control worker status', $qualitySavedLimit, $qualityStatus]] as [$heading, $poolLimit, $poolStatus])
         <div wire:key="{{ $heading }}">
         <x-card :header="$heading">
             <div class="space-y-4" role="status">

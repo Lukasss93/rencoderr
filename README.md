@@ -111,11 +111,11 @@ Only completed, passing quality checks can write back. Checks disabled in the me
 
 Pending copies are tracked and excluded from scans and transcode requests. Changed sources or encoded copies, unavailable folders and permission failures stop replacement and show an error. Fix the cause and use **Retry write-back** on the media detail page. Interrupted copies and replacements recover during startup; an installed file is not installed again. After installation the inventory is refreshed, a new media inspection is requested, and the staging output is removed. Reclaimed-space statistics appear only after replacement completes.
 
-The library filesystem must allow writes, hard links and directory synchronization. Write-back shares the encoding worker pool and has a configurable `WRITEBACK_TIMEOUT_SECONDS` limit (default: six hours). This workflow applies to new transcodes; existing completed results are not installed automatically.
+The library filesystem must allow writes, hard links and directory synchronization. Write-back has its own worker pool and a configurable `WRITEBACK_TIMEOUT_SECONDS` limit (default: six hours). This workflow applies to new transcodes; existing completed results are not installed automatically.
 
 ### Workers
 
-Under **Settings → Workers**, set independent limits for standard tasks, encoding, and quality control. Each defaults to one worker. Changes apply without restarting the container; workers already processing a file finish before retiring.
+Under **Settings → Workers**, set independent limits for standard tasks, encoding, write-back, and quality control. Each defaults to one worker. Changes apply without restarting the container; workers already processing a file finish before retiring.
 
 ## Hardware acceleration
 
