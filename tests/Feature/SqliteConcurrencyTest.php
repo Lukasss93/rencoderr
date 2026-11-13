@@ -72,6 +72,22 @@ it('serializes read then write transactions across workers without stale snapsho
     }
 });
 
+it('opens file databases in WAL mode that sync at checkpoints instead of every commit', function (): void {
+    $connection = sqliteConcurrencyConnection(sqliteConcurrencyConfiguration());
+
+    try {
+        $pragmas = collect(['journal_mode', 'synchronous', 'temp_store', 'cache_size', 'mmap_size', 'journal_size_limit'])
+            ->mapWithKeys(fn (string $pragma): array => [$pragma => $connection->scalar("pragma {$pragma}")])->all();
+
+        expect($pragmas)->toBe([
+            'journal_mode' => 'wal', 'synchronous' => 1, 'temp_store' => 2,
+            'cache_size' => -20480, 'mmap_size' => 134217728, 'journal_size_limit' => 67108864,
+        ]);
+    } finally {
+        DB::purge($connection->getName());
+    }
+});
+
 it('allows a progress write to wait for a worker holding the writer lock for over five seconds', function (): void {
     $configuration = sqliteConcurrencyConfiguration();
     $connection = sqliteConcurrencyConnection($configuration);

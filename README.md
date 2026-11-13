@@ -54,6 +54,19 @@ Open `http://localhost:8000`, sign in, and add a library under **Settings → Li
 - `/config` holds the database, application key, runtime data, and encoded outputs. Keep it on local storage with reliable filesystem locking and back it up before upgrades.
 - `/media` exposes your media library. Additional directories can be mounted as needed.
 
+Every background task records its progress in the SQLite database under `/config/database`, and only one process can write at a time, so a slow disk delays all work. On hard-disk or NAS (network-attached storage) volumes, mount the database directory from an SSD, separately from `/config`, which also stages encoded outputs:
+
+```yaml
+    volumes:
+      - ./config-data:/config
+      - /path/on/ssd/rencoderr-database:/config/database
+      - ./media:/media
+```
+
+To move an existing database, stop the container and move every `database.sqlite*` file from `config-data/database` into the new directory first.
+
+The database confirms writes to disk at checkpoints instead of on every change (`DB_SYNCHRONOUS=NORMAL`). An application crash loses nothing, but a power failure or operating-system crash can roll back the most recent changes. Set `DB_SYNCHRONOUS=FULL` to confirm every change, at the cost of slower writes.
+
 Configure environment variables directly in Compose; a separate `.env` file is optional. See [.env.example](.env.example) for available settings, including encoding limits, temporary storage, and quality-control resources.
 
 To update:

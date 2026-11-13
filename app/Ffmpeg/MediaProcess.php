@@ -3,6 +3,9 @@
 namespace App\Ffmpeg;
 
 use Closure;
+use Illuminate\Database\DetectsConcurrencyErrors;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
@@ -10,6 +13,8 @@ use Throwable;
 
 class MediaProcess
 {
+    use DetectsConcurrencyErrors;
+
     private ?Process $process = null;
 
     private ?int $group = null;
@@ -63,7 +68,7 @@ class MediaProcess
                 }
                 $this->checkInterrupted($interrupted);
                 if (microtime(true) - $lastProgress >= 5) {
-                    $progress($tail);
+                    $this->report($progress, $tail);
                     $lastProgress = microtime(true);
                 }
                 usleep(100000);
@@ -73,13 +78,31 @@ class MediaProcess
                 throw $outputFailure;
             }
             $this->checkInterrupted($interrupted);
-            $progress($tail);
+            $this->report($progress, $tail);
 
             return new MediaProcessResult($process->getExitCode() ?? 1, $tail);
         } finally {
             $this->stop();
             $this->process = null;
             $this->group = null;
+        }
+    }
+
+    /**
+     * Progress reports are informational and the next one repeats the latest state, so a report
+     * that times out on a locked database is skipped instead of stopping the media process.
+     *
+     * @param  Closure(string): mixed  $progress
+     */
+    private function report(Closure $progress, string $tail): void
+    {
+        try {
+            $progress($tail);
+        } catch (QueryException $exception) {
+            if (! $this->causedByConcurrencyError($exception)) {
+                throw $exception;
+            }
+            Log::warning('Skipped a media progress update because the database is busy.', ['error' => $exception->getMessage()]);
         }
     }
 

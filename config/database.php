@@ -40,8 +40,15 @@ return [
             'foreign_key_constraints' => env('DB_FOREIGN_KEYS', true),
             'busy_timeout' => env('DB_BUSY_TIMEOUT', 30000),
             'journal_mode' => env('DB_JOURNAL_MODE', 'WAL'),
-            'synchronous' => null,
+            'synchronous' => env('DB_SYNCHRONOUS', 'NORMAL'),
             'transaction_mode' => 'IMMEDIATE',
+            'pragmas' => [
+                // A negative cache size is in KiB.
+                'cache_size' => -20 * 1024,
+                'mmap_size' => 128 * 1024 * 1024,
+                'temp_store' => 'MEMORY',
+                'journal_size_limit' => 64 * 1024 * 1024,
+            ],
         ],
 
         'mysql' => [

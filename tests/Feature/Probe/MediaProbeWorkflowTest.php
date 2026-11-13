@@ -2,6 +2,7 @@
 
 use App\Jobs\ProbeMediaFile;
 use App\Library\Actions\RequestLibraryScan;
+use App\Library\Events\LibraryPathScanned;
 use App\Models\LibraryPath;
 use App\Models\MediaFile;
 use App\Models\MediaProbe;
@@ -11,11 +12,14 @@ use App\Tasks\Enums\TaskStatus;
 use FFMpeg\Driver\FFProbeDriver;
 use FFMpeg\Exception\ExecutableNotFoundException;
 use Illuminate\Contracts\Bus\Dispatcher;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 
 function pendingProbeFile(): MediaFile
 {
@@ -41,6 +45,26 @@ it('queues discovered files only after the folder scan succeeds', function (): v
     expect($file->probe)->not->toBeNull();
     expect($file->probe()->sole()->status)->toBe(TaskStatus::QUEUED);
     Queue::assertPushed(ProbeMediaFile::class, fn (ProbeMediaFile $job): bool => $job->fileId === $file->id && $job->queue === 'probes');
+});
+
+it('queues the probes of a large scan with one write transaction per 200 files', function (): void {
+    $token = (string) Str::uuid();
+    $root = LibraryPath::factory()->create(['scan_status' => TaskStatus::COMPLETED, 'scan_token' => $token]);
+    MediaFile::factory()->count(201)->for($root)->has(MediaProbe::factory(), 'probe')->create(['last_seen_scan_token' => $token]);
+    Queue::fake([ProbeMediaFile::class]);
+    $outerLevel = DB::transactionLevel();
+    $transactions = 0;
+    Event::listen(TransactionBeginning::class, function (TransactionBeginning $event) use ($outerLevel, &$transactions): void {
+        if ($event->connection->transactionLevel() === $outerLevel + 1) {
+            $transactions++;
+        }
+    });
+
+    LibraryPathScanned::dispatch($root->id, $token);
+
+    expect($transactions)->toBe(2);
+    expect(MediaProbe::query()->where('status', TaskStatus::QUEUED)->count())->toBe(201);
+    Queue::assertPushed(ProbeMediaFile::class, 201);
 });
 
 it('recognizes fresh metadata and removes probe records when their file is deleted', function (): void {
